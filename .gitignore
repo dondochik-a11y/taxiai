@@ -1,0 +1,23 @@
+# Env
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+apps/api/app/ml/artifacts/*.joblib
+
+# Node / Next.js
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/.env*.local
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

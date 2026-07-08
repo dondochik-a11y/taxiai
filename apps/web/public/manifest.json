@@ -1,0 +1,12 @@
+{
+  "name": "TaxiAI",
+  "short_name": "TaxiAI",
+  "description": "AI-копилот для водителя такси",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "icons": [
+    { "src": "/window.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

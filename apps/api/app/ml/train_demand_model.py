@@ -1,0 +1,84 @@
+"""Trains a single lightweight demand-forecasting model (scikit-learn
+HistGradientBoostingRegressor — tabular gradient boosting, not deep learning)
+over the synthetic (or, later, real) demand history. `horizon_minutes` is
+itself a feature, so one model serves all four forecast horizons rather than
+training four separate models.
+
+Run via `make train` (manual for MVP; app/jobs/retrain_model.py can schedule
+this later once there's enough live data drift to matter).
+
+This is presented honestly: a lightweight statistical model trained on
+regional history, not a fabricated claim of production-grade accuracy. The
+printed MAE is whatever the holdout evaluation actually produces.
+"""
+from __future__ import annotations
+
+import sys
+from datetime import timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import joblib  # noqa: E402
+from sklearn.ensemble import HistGradientBoostingRegressor  # noqa: E402
+from sklearn.metrics import mean_absolute_error  # noqa: E402
+
+from app.ml import features as feat  # noqa: E402
+
+ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+MODEL_PATH = ARTIFACTS_DIR / "demand_model.joblib"
+MODEL_VERSION = "hgbr-v1"
+
+HOLDOUT_DAYS = 14
+
+
+def main() -> None:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("Loading raw data...")
+    demand_df = feat.load_demand()
+    if demand_df.empty:
+        raise RuntimeError("No demand_snapshots found — run scripts/seed_synthetic_history.py first.")
+    weather_df = feat.load_weather_hourly()
+    traffic_df = feat.load_traffic()
+    calendar_df = feat.load_calendar()
+    districts_df = feat.load_districts()
+    district_ids = sorted(districts_df["id"].tolist())
+
+    print("Building features...")
+    feature_df = feat.build_features(demand_df, weather_df, traffic_df, calendar_df, districts_df)
+    training_df = feat.make_training_set(feature_df, district_ids)
+    print(f"Training set: {len(training_df)} rows across horizons {feat.HORIZONS_MINUTES}")
+
+    columns = feat.feature_columns_for(district_ids)
+    max_time = training_df["observed_at"].max()
+    holdout_start = max_time - timedelta(days=HOLDOUT_DAYS)
+
+    train_mask = training_df["observed_at"] < holdout_start
+    train_df, holdout_df = training_df[train_mask], training_df[~train_mask]
+    if holdout_df.empty:
+        print("Not enough history for a time-based holdout; training on everything.")
+        train_df, holdout_df = training_df, training_df.iloc[0:0]
+
+    model = HistGradientBoostingRegressor(max_depth=6, learning_rate=0.08, max_iter=300)
+    model.fit(train_df[columns], train_df["label"])
+
+    if not holdout_df.empty:
+        preds = model.predict(holdout_df[columns])
+        mae = mean_absolute_error(holdout_df["label"], preds)
+        print(f"Holdout MAE (demand_level, 0-1 scale): {mae:.4f} on {len(holdout_df)} rows")
+
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": columns,
+            "district_ids": district_ids,
+            "model_version": MODEL_VERSION,
+        },
+        MODEL_PATH,
+    )
+    print(f"Saved model artifact to {MODEL_PATH}")
+
+
+if __name__ == "__main__":
+    main()

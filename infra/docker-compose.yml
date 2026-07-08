@@ -1,0 +1,75 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taxi
+      POSTGRES_PASSWORD: taxi
+      POSTGRES_DB: taxi
+    ports:
+      - "5432:5432"
+    volumes:
+      - taxi_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxi -d taxi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ../apps/api
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://taxi:taxi@db:5432/taxi
+      REDIS_URL: redis://redis:6379/0
+      SHARED_CONSTANTS_DIR: /shared_constants
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../apps/api:/app
+      - ../packages/shared/constants:/shared_constants:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../apps/api
+    command: ["python", "-m", "app.jobs.scheduler"]
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://taxi:taxi@db:5432/taxi
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ../apps/api:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      api:
+        condition: service_started
+
+  bot:
+    build:
+      context: ../apps/bot
+    env_file:
+      - ../.env
+    environment:
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  taxi_db_data:
