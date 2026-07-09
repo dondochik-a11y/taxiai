@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate seed train patterns web-dev
+.PHONY: up down logs migrate seed train patterns web-dev backup prod-up prod-logs prod-migrate
 
 up:
 	docker compose -f infra/docker-compose.yml up -d --build
@@ -23,3 +23,16 @@ patterns:
 
 web-dev:
 	cd apps/web && pnpm dev
+
+backup:
+	mkdir -p backups && docker exec infra-db-1 pg_dump -U taxi taxi | gzip > backups/taxi-$$(date +%Y%m%d-%H%M%S).sql.gz && ls -lh backups/ | tail -1
+
+# Production stack on a VPS (HTTPS via Caddy) — see infra/DEPLOY.md
+prod-up:
+	docker compose -f infra/docker-compose.prod.yml up -d --build
+
+prod-logs:
+	docker compose -f infra/docker-compose.prod.yml logs -f
+
+prod-migrate:
+	docker compose -f infra/docker-compose.prod.yml exec api alembic upgrade head

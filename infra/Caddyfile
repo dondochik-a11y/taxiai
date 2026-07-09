@@ -1,0 +1,12 @@
+# HTTPS termination + routing for the production stack. Caddy obtains and
+# renews Let's Encrypt certificates automatically for {$DOMAIN} — the only
+# prerequisite is a DNS A-record pointing the domain at this server.
+{$DOMAIN} {
+	# handle_path strips the /api prefix, so the backend still sees /v1/...
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

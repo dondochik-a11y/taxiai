@@ -1,0 +1,110 @@
+# Production compose for a public VPS. Differences from docker-compose.yml:
+# - nothing is published to the host except Caddy's 80/443 (db/redis/api stay
+#   on the internal network — the dev file's exposed 5432/6379/8000 with the
+#   default password would be an open door on a public IP);
+# - Postgres password comes from .env (POSTGRES_PASSWORD);
+# - adds `web` (production Next.js build) and `caddy` (HTTPS termination +
+#   routing: /api/* -> api, everything else -> web, certificates automatic);
+# - restart: unless-stopped everywhere, so a VPS reboot brings the stack back.
+#
+# Usage: make prod-up  (see infra/DEPLOY.md for the full server checklist)
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taxi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: taxi
+    volumes:
+      - taxi_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxi -d taxi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../apps/api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://taxi:${POSTGRES_PASSWORD}@db:5432/taxi
+      REDIS_URL: redis://redis:6379/0
+      SHARED_CONSTANTS_DIR: /shared_constants
+    volumes:
+      - ../apps/api:/app
+      - ../packages/shared/constants:/shared_constants:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../apps/api
+    restart: unless-stopped
+    command: ["python", "-m", "app.jobs.scheduler"]
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://taxi:${POSTGRES_PASSWORD}@db:5432/taxi
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ../apps/api:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      api:
+        condition: service_started
+
+  bot:
+    build:
+      context: ../apps/bot
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        # Same-origin API via Caddy's /api/* route — no CORS involved.
+        NEXT_PUBLIC_API_BASE_URL: https://${DOMAIN:?set DOMAIN in .env}/api
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  taxi_db_data:
+  caddy_data:
+  caddy_config:
