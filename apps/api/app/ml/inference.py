@@ -30,15 +30,21 @@ _PER_KM = 22.0
 _AVG_TRIP_KM = 9.0
 _SURGE_SLOPE = 1.8
 
+# Keyed by the artifact file's mtime: the worker is a long-lived process, and
+# a plain "load once" cache would keep serving the old model forever after the
+# weekly retrain job replaces the file.
 _artifact_cache: dict | None = None
+_artifact_mtime: float | None = None
 
 
 def _load_artifact() -> dict:
-    global _artifact_cache
-    if _artifact_cache is None:
-        if not MODEL_PATH.exists():
-            raise RuntimeError(f"No trained model at {MODEL_PATH} — run `make train` first.")
+    global _artifact_cache, _artifact_mtime
+    if not MODEL_PATH.exists():
+        raise RuntimeError(f"No trained model at {MODEL_PATH} — run `make train` first.")
+    mtime = MODEL_PATH.stat().st_mtime
+    if _artifact_cache is None or mtime != _artifact_mtime:
         _artifact_cache = joblib.load(MODEL_PATH)
+        _artifact_mtime = mtime
     return _artifact_cache
 
 

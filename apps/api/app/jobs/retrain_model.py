@@ -1,7 +1,6 @@
-"""Thin wrapper around app.ml.train_demand_model, kept separate so it can be
-scheduled (e.g. nightly) later once there's enough live data drift to justify
-automatic retraining. Not wired into app/jobs/scheduler.py by default for
-MVP — run manually via `make train` for now.
+"""Thin wrapper around app.ml.train_demand_model: the subprocess target for
+the weekly retrain job in app/jobs/scheduler.py (Mon 03:30 UTC). Can also be
+run manually any time via `make train`.
 """
 from app.ml.train_demand_model import main as retrain
 

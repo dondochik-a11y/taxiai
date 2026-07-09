@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import joblib  # noqa: E402
+import numpy as np  # noqa: E402
 from sklearn.ensemble import HistGradientBoostingRegressor  # noqa: E402
 from sklearn.metrics import mean_absolute_error  # noqa: E402
 
@@ -61,10 +62,12 @@ def main() -> None:
         train_df, holdout_df = training_df, training_df.iloc[0:0]
 
     model = HistGradientBoostingRegressor(max_depth=6, learning_rate=0.08, max_iter=300)
-    model.fit(train_df[columns], train_df["label"])
+    # float32 halves the peak RAM of the fit-input copy — matters for the
+    # weekly in-container retrain, and HGBR bins to uint8 internally anyway.
+    model.fit(train_df[columns].astype(np.float32), train_df["label"])
 
     if not holdout_df.empty:
-        preds = model.predict(holdout_df[columns])
+        preds = model.predict(holdout_df[columns].astype(np.float32))
         mae = mean_absolute_error(holdout_df["label"], preds)
         print(f"Holdout MAE (demand_level, 0-1 scale): {mae:.4f} on {len(holdout_df)} rows")
 

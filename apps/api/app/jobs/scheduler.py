@@ -13,6 +13,8 @@
 - once a day: re-run pattern mining over accumulated history; sync real public
   holidays (isDayOff.ru, live mode) and real upcoming flights (AviationStack,
   live mode) — both no-ops in mock mode.
+- weekly (Mon 03:30 UTC): retrain the demand model over the full accumulated
+  history in a subprocess, then immediately regenerate forecasts.
 
 Traffic doesn't need its own scheduled job here: it's ingested inline inside
 the 5-minute tick (scripts/simulate_live_feed.py::_maybe_ingest_traffic),
@@ -98,6 +100,29 @@ def _run_flights_sync_job() -> None:
         session.close()
 
 
+def _run_retrain_job() -> None:
+    """Weekly model retrain over the full accumulated history (synthetic
+    backfill + everything the live providers have written since). Runs in a
+    subprocess so the multi-GB pandas peak is fully released back to the OS
+    when it exits — the worker process itself stays small. The forecast job
+    picks the new artifact up automatically (mtime-checked cache in
+    app/ml/inference.py); one forecast pass is triggered right away so the map
+    doesn't wait out the 15-minute tick on a stale model."""
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.jobs.retrain_model"],
+        capture_output=True,
+        text=True,
+        timeout=3600,
+    )
+    if result.returncode != 0:
+        logger.error("Model retrain failed:\n%s", result.stderr[-2000:])
+        return
+    logger.info("Model retrained:\n%s", result.stdout.strip()[-500:])
+    _run_forecast_job()
+
+
 def _run_opensky_job() -> None:
     from app.jobs.ingest_opensky import sync_realtime_arrivals
 
@@ -120,6 +145,9 @@ def main() -> None:
     scheduler.add_job(_run_pattern_mining_job, "interval", hours=24, id="pattern_mining_tick")
     scheduler.add_job(_run_calendar_sync_job, "interval", hours=24, id="calendar_sync_tick")
     scheduler.add_job(_run_flights_sync_job, "interval", hours=24, id="flights_sync_tick")
+    # Mon 03:30 UTC = 06:30 MSK — night lull, and the freshly retrained model
+    # is in place before the Monday morning rush.
+    scheduler.add_job(_run_retrain_job, "cron", day_of_week="mon", hour=3, minute=30, id="weekly_retrain")
     logger.info("Worker scheduler starting.")
     _run_tick_job()  # run one immediately on startup instead of waiting 5 min
     _run_calendar_sync_job()  # cheap/keyless — safe to also run once at startup
