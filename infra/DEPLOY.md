@@ -22,12 +22,23 @@ cd /opt/taxiai
 cp .env.example .env
 ```
 
+Docker Compose читает переменные для подстановки (`${POSTGRES_PASSWORD}`,
+`${DOMAIN}`) из `.env` рядом с compose-файлом, т.е. из `infra/.env`. Заведите
+симлинк на корневой `.env`, иначе `up` упадёт с «required variable … is missing»:
+
+```bash
+ln -sf ../.env infra/.env
+```
+
+Нет своего домена? Подойдёт бесплатный `<IP>.sslip.io` (резолвится в этот IP,
+Let's Encrypt его принимает) — например `DOMAIN=93.189.228.203.sslip.io`.
+
 В `.env` заполнить:
 
 ```bash
 ENVIRONMENT=production
 POSTGRES_PASSWORD=<сгенерировать: openssl rand -hex 24>
-DOMAIN=taxi.example.ru
+DOMAIN=taxi.example.ru   # или <IP>.sslip.io
 TELEGRAM_BOT_TOKEN=<токен @taxiai1bot>
 # + все ключи провайдеров, которые были в локальном .env
 # (TOMTOM_API_KEY, OPENWEATHER_API_KEY, AVIATIONSTACK_API_KEY, OPENSKY_*,
@@ -46,12 +57,20 @@ make backup                             # backups/taxi-<дата>.sql.gz
 scp backups/taxi-*.sql.gz root@<IP>:/opt/taxiai/
 ```
 
-На сервере (до первого `prod-migrate`, в пустую базу):
+На сервере восстановление ДО старта api (его entrypoint гонит
+`alembic upgrade head` и на пустой базе создал бы таблицы, конфликтуя с дампом).
+Поэтому сначала поднимаем только db:
 
 ```bash
-cd /opt/taxiai && make prod-up          # поднимет db; подождать ~30 сек
+cd /opt/taxiai
+docker compose -f infra/docker-compose.prod.yml up -d db     # только база
+# дождаться healthy, затем:
 gunzip -c taxi-*.sql.gz | docker compose -f infra/docker-compose.prod.yml exec -T db psql -U taxi taxi
+# (ошибки «schema tiger/topology already exists» безвредны — это схемы PostGIS)
 ```
+
+Модель (`apps/api/app/ml/artifacts/demand_model.joblib`) в git не хранится —
+скопируйте её с Mac тем же `scp`, иначе после запуска выполните `make train`.
 
 Если история не нужна — пропустить и после запуска выполнить обычные
 `prod-migrate`, seed и train (см. корневой README).
