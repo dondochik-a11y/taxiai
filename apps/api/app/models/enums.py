@@ -28,6 +28,7 @@ class DataSource(str, enum.Enum):
     SYNTHETIC = "synthetic"
     LIVE = "live"
     MANUAL = "manual"
+    RADAR = "radar"  # lifted from a driver's kef-radar screenshot
 
 
 class PrecipitationType(str, enum.Enum):

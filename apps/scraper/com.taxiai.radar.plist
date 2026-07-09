@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Edit the three paths and the RADAR_API_URL, then install per README. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.taxiai.radar</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tim/Documents/work/taxi/apps/scraper/.venv/bin/python</string>
+        <string>/Users/tim/Documents/work/taxi/apps/scraper/radar_scraper.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RADAR_API_URL</key>
+        <string>https://93.189.228.203.sslip.io/api/v1/kef/ingest</string>
+        <key>SSL_CERT_FILE</key>
+        <string>/Users/tim/Documents/work/taxi/apps/scraper/.venv/lib/python3.13/site-packages/certifi/cacert.pem</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>1800</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/tim/Documents/work/taxi/apps/scraper/radar.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tim/Documents/work/taxi/apps/scraper/radar.log</string>
+</dict>
+</plist>

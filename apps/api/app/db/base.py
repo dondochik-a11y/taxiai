@@ -25,3 +25,4 @@ from app.models.chat import ChatMessage  # noqa: E402,F401
 from app.models.notification import TelegramNotificationLog  # noqa: E402,F401
 from app.models.pricing import PriceObservation  # noqa: E402,F401
 from app.models.link_code import LinkCode  # noqa: E402,F401
+from app.models.kef_observation import KefObservation  # noqa: E402,F401
