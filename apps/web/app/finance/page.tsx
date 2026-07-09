@@ -92,7 +92,7 @@ export default function FinancePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold">Финансы</h1>
+      <h1 className="text-lg md:text-xl font-semibold">Финансы</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatTile label="Доход сегодня" value={`${(today?.gross_income ?? 0).toFixed(0)} ₽`} />

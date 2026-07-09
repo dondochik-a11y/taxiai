@@ -5,8 +5,19 @@ import { useRouter } from "next/navigation";
 import { api, storeUserId } from "@/lib/apiClient";
 import type { District, User, UserCreate } from "@/lib/types";
 
-const TARIFFS = ["economy", "comfort", "comfort_plus", "business"];
-const FUEL_TYPES = ["petrol92", "petrol95", "diesel", "gas", "electric"];
+const TARIFFS = [
+  { value: "economy", label: "Эконом" },
+  { value: "comfort", label: "Комфорт" },
+  { value: "comfort_plus", label: "Комфорт+" },
+  { value: "business", label: "Бизнес" },
+];
+const FUEL_TYPES = [
+  { value: "petrol92", label: "АИ-92" },
+  { value: "petrol95", label: "АИ-95" },
+  { value: "diesel", label: "Дизель" },
+  { value: "gas", label: "Газ" },
+  { value: "electric", label: "Электро" },
+];
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -67,108 +78,126 @@ export default function OnboardingPage() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-xl font-semibold mb-1">Настройка профиля водителя</h1>
-      <p className="text-sm text-[var(--text-secondary)] mb-6">
+      <h1 className="text-lg md:text-xl font-semibold mb-1">Профиль водителя</h1>
+      <p className="text-sm text-[var(--text-secondary)] mb-5">
         Заполните один раз — дальше AI всё считает автоматически.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Field label="Город">
-          <input className="input" value={city} onChange={(e) => setCity(e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Марка авто">
-            <input className="input" value={carMake} onChange={(e) => setCarMake(e.target.value)} />
+        <Section title="🚗 Машина">
+          <Field label="Город">
+            <input className="input" value={city} onChange={(e) => setCity(e.target.value)} />
           </Field>
-          <Field label="Модель">
-            <input className="input" value={carModel} onChange={(e) => setCarModel(e.target.value)} />
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Марка">
+              <input className="input" value={carMake} onChange={(e) => setCarMake(e.target.value)} />
+            </Field>
+            <Field label="Модель">
+              <input className="input" value={carModel} onChange={(e) => setCarModel(e.target.value)} />
+            </Field>
+          </div>
           <Field label="Тариф">
-            <select className="input" value={tariffPlan} onChange={(e) => setTariffPlan(e.target.value)}>
+            <div className="flex gap-2 flex-wrap">
               {TARIFFS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
+                <button
+                  key={t.value}
+                  type="button"
+                  data-active={tariffPlan === t.value}
+                  className="chip"
+                  onClick={() => setTariffPlan(t.value)}
+                >
+                  {t.label}
+                </button>
               ))}
-            </select>
+            </div>
           </Field>
+        </Section>
+
+        <Section title="⛽ Экономика">
           <Field label="Топливо">
-            <select className="input" value={fuelType} onChange={(e) => setFuelType(e.target.value)}>
+            <div className="flex gap-2 flex-wrap">
               {FUEL_TYPES.map((f) => (
-                <option key={f} value={f}>
-                  {f}
+                <button
+                  key={f.value}
+                  type="button"
+                  data-active={fuelType === f.value}
+                  className="chip"
+                  onClick={() => setFuelType(f.value)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Расход, л/100км">
+              <input
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                className="input"
+                value={fuelConsumption}
+                onChange={(e) => setFuelConsumption(Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Цена топлива, ₽/л">
+              <input
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                className="input"
+                value={fuelPrice}
+                onChange={(e) => setFuelPrice(Number(e.target.value))}
+              />
+            </Field>
+          </div>
+          <Field label="Аренда, ₽/день">
+            <input
+              type="number"
+              inputMode="numeric"
+              className="input"
+              value={rentalCostPerDay}
+              onChange={(e) => setRentalCostPerDay(Number(e.target.value))}
+            />
+          </Field>
+        </Section>
+
+        <Section title="🕐 Смена">
+          <Field label="Домашний район">
+            <select
+              className="input"
+              value={homeDistrictId}
+              onChange={(e) => setHomeDistrictId(e.target.value === "" ? "" : Number(e.target.value))}
+            >
+              <option value="">— не выбрано —</option>
+              {districts.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
                 </option>
               ))}
             </select>
           </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Расход, л/100км">
-            <input
-              type="number"
-              step="0.1"
-              className="input"
-              value={fuelConsumption}
-              onChange={(e) => setFuelConsumption(Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Цена топлива, ₽/л">
-            <input
-              type="number"
-              step="0.1"
-              className="input"
-              value={fuelPrice}
-              onChange={(e) => setFuelPrice(Number(e.target.value))}
-            />
-          </Field>
-        </div>
-        <Field label="Аренда, ₽/день">
-          <input
-            type="number"
-            className="input"
-            value={rentalCostPerDay}
-            onChange={(e) => setRentalCostPerDay(Number(e.target.value))}
-          />
-        </Field>
-        <Field label="Домашний район">
-          <select
-            className="input"
-            value={homeDistrictId}
-            onChange={(e) => setHomeDistrictId(e.target.value === "" ? "" : Number(e.target.value))}
-          >
-            <option value="">— не выбрано —</option>
-            {districts.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Начало смены">
-            <input
-              type="time"
-              className="input"
-              value={scheduleStart}
-              onChange={(e) => setScheduleStart(e.target.value)}
-            />
-          </Field>
-          <Field label="Конец смены">
-            <input
-              type="time"
-              className="input"
-              value={scheduleEnd}
-              onChange={(e) => setScheduleEnd(e.target.value)}
-            />
-          </Field>
-        </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Начало смены">
+              <input
+                type="time"
+                className="input"
+                value={scheduleStart}
+                onChange={(e) => setScheduleStart(e.target.value)}
+              />
+            </Field>
+            <Field label="Конец смены">
+              <input
+                type="time"
+                className="input"
+                value={scheduleEnd}
+                onChange={(e) => setScheduleEnd(e.target.value)}
+              />
+            </Field>
+          </div>
+        </Section>
+
         {error && <p className="text-sm" style={{ color: "var(--status-critical)" }}>{error}</p>}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-2 rounded-md bg-[var(--series-1)] text-white py-2 font-medium disabled:opacity-50"
-        >
+        <button type="submit" disabled={submitting} className="btn-primary">
           {submitting ? "Сохранение..." : "Начать работу"}
         </button>
       </form>
@@ -176,9 +205,18 @@ export default function OnboardingPage() {
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-4 flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-[var(--text-secondary)]">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-sm">
+    <label className="flex flex-col gap-1.5 text-sm">
       <span className="text-[var(--text-secondary)]">{label}</span>
       {children}
     </label>

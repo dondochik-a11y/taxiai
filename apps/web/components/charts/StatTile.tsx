@@ -10,9 +10,9 @@ interface StatTileProps {
 export function StatTile({ label, value, delta }: StatTileProps) {
   const deltaIsGood = delta && delta.direction === delta.goodDirection;
   return (
-    <div className="rounded-lg border border-white/10 bg-[var(--surface-1)] p-4 flex flex-col gap-1">
-      <span className="text-sm text-[var(--text-secondary)]">{label}</span>
-      <span className="text-3xl font-semibold text-[var(--text-primary)]">{value}</span>
+    <div className="card p-3.5 md:p-4 flex flex-col gap-1">
+      <span className="text-xs md:text-sm text-[var(--text-secondary)]">{label}</span>
+      <span className="text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tabular">{value}</span>
       {delta && (
         <span
           className="text-sm tabular"

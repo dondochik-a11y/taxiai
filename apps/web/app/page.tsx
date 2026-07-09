@@ -111,48 +111,50 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold">Карта спроса — Москва</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center rounded-full border border-white/10 overflow-hidden">
-            {MODES.map((m) => (
-              <button
-                key={m.value}
-                onClick={() => setMode(m.value)}
-                className={`px-3 py-1 text-sm ${
-                  mode === m.value
-                    ? "bg-[var(--series-1)] text-white"
-                    : "text-[var(--text-secondary)]"
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          <span className="text-sm text-[var(--text-secondary)]">горизонт:</span>
-          {HORIZONS.map((h) => (
+    <div className="flex flex-col gap-3 md:gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg md:text-xl font-semibold">Карта спроса</h1>
+        <div className="flex items-center rounded-full border border-white/10 overflow-hidden shrink-0">
+          {MODES.map((m) => (
             <button
-              key={h}
-              onClick={() => setHorizon(h)}
-              className={`px-3 py-1 rounded-full text-sm border ${
-                horizon === h
-                  ? "bg-[var(--series-1)] border-[var(--series-1)] text-white"
-                  : "border-white/10 text-[var(--text-secondary)]"
+              key={m.value}
+              onClick={() => setMode(m.value)}
+              className={`px-4 py-1.5 text-sm font-medium ${
+                mode === m.value
+                  ? "bg-[var(--series-1)] text-white"
+                  : "text-[var(--text-secondary)]"
               }`}
             >
-              {h} мин
+              {m.label}
             </button>
           ))}
-          <button
-            onClick={askForRecommendation}
-            disabled={loadingRec}
-            className="ml-2 px-4 py-1.5 rounded-full text-sm bg-[var(--status-good)] text-black font-medium disabled:opacity-50"
-          >
-            {loadingRec ? "Ищу..." : "Куда ехать?"}
-          </button>
         </div>
       </div>
+
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
+        <span className="text-sm text-[var(--text-muted)] shrink-0">
+          {mode === "surge" ? "прогноз на:" : "горизонт:"}
+        </span>
+        {HORIZONS.map((h) => (
+          <button
+            key={h}
+            onClick={() => setHorizon(h)}
+            data-active={horizon === h}
+            className="chip shrink-0"
+          >
+            {h} мин
+          </button>
+        ))}
+      </div>
+
+      <button
+        onClick={askForRecommendation}
+        disabled={loadingRec}
+        className="btn-primary w-full md:w-auto md:self-start"
+        style={{ background: "var(--status-good)", color: "#000" }}
+      >
+        {loadingRec ? "Ищу лучший район..." : "🎯 Куда ехать?"}
+      </button>
 
       {userId === null && (
         <p className="text-sm text-[var(--text-secondary)]">
@@ -167,22 +169,22 @@ export default function DashboardPage() {
       {recError && <p className="text-sm" style={{ color: "var(--status-critical)" }}>{recError}</p>}
 
       {recommendation && (
-        <div className="rounded-lg border border-white/10 bg-[var(--surface-1)] p-4">
-          <div className="flex items-center gap-2 mb-1">
+        <div className="card p-4">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span
-              className="text-xs font-medium px-2 py-0.5 rounded-full"
+              className="text-xs font-semibold px-2.5 py-1 rounded-full"
               style={{
                 background: recommendation.action === "move" ? "var(--status-warning)" : "var(--status-good)",
                 color: "black",
               }}
             >
-              {recommendation.action === "move" ? "переехать" : "оставаться"}
+              {recommendation.action === "move" ? "→ переехать" : "✓ оставаться"}
             </span>
-            <span className="font-semibold">
+            <span className="font-semibold text-base">
               {districtById.get(recommendation.recommended_district_id)?.name ?? "—"}
             </span>
             <span className="text-sm text-[var(--text-secondary)] tabular">
-              вероятность {(recommendation.probability * 100).toFixed(0)}% · чек ≈
+              {(recommendation.probability * 100).toFixed(0)}% · чек ≈
               {recommendation.expected_avg_check.toFixed(0)} ₽
             </span>
           </div>

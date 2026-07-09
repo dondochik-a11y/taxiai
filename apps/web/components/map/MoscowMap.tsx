@@ -84,6 +84,9 @@ export function MoscowMap({
       },
       center: [37.6173, 55.7558],
       zoom: 9.3,
+      // Compact (collapsible) attribution so it doesn't cover the legend on
+      // phone-width maps; OSM attribution stays one tap away.
+      attributionControl: { compact: true },
     });
     mapRef.current.addControl(new maplibregl.NavigationControl(), "top-right");
   }, []);
@@ -134,7 +137,11 @@ export function MoscowMap({
 
       el.addEventListener("mouseenter", () => setHovered({ district: d, forecast, surgeNow }));
       el.addEventListener("mouseleave", () => setHovered(null));
-      el.addEventListener("click", () => onSelectDistrict?.(d.id));
+      // On touch devices there is no hover — tap opens the same info panel.
+      el.addEventListener("click", () => {
+        setHovered({ district: d, forecast, surgeNow });
+        onSelectDistrict?.(d.id);
+      });
 
       markersRef.current.push(marker);
     });
@@ -143,9 +150,9 @@ export function MoscowMap({
   const legendSteps = mode === "surge" ? SURGE_STEPS : SEQUENTIAL_STEPS;
 
   return (
-    <div className="relative rounded-lg overflow-hidden border border-white/10">
-      <div ref={containerRef} className="w-full h-[520px]" />
-      <div className="absolute bottom-3 left-3 bg-black/70 border border-white/10 rounded px-3 py-2 text-xs text-[var(--text-secondary)] flex items-center gap-1">
+    <div className="relative rounded-2xl overflow-hidden border border-white/10">
+      <div ref={containerRef} className="w-full h-[56dvh] md:h-[520px]" />
+      <div className="absolute bottom-12 md:bottom-3 left-3 bg-black/70 border border-white/10 rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)] flex items-center gap-1">
         <span>{mode === "surge" ? "кэф: ×1.0" : "спрос: меньше"}</span>
         {legendSteps.map((c) => (
           <span key={c} className="w-3 h-3 rounded-full inline-block" style={{ background: c }} />
@@ -153,7 +160,14 @@ export function MoscowMap({
         <span>{mode === "surge" ? "×2.8" : "больше"}</span>
       </div>
       {hovered && (
-        <div className="absolute top-3 left-3 bg-black/80 border border-white/10 rounded px-3 py-2 text-sm text-[var(--text-primary)] max-w-xs">
+        <div className="absolute top-3 left-3 right-3 md:right-auto bg-black/85 backdrop-blur border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] md:max-w-xs">
+          <button
+            className="absolute top-1.5 right-2.5 text-[var(--text-muted)] md:hidden"
+            onClick={() => setHovered(null)}
+            aria-label="Закрыть"
+          >
+            ✕
+          </button>
           <div className="font-semibold">{hovered.district.name}</div>
           {hovered.surgeNow && (
             <div className="text-[var(--text-secondary)] tabular">
