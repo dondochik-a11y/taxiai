@@ -81,10 +81,23 @@ async def start_profile(message: Message, state: FSMContext) -> None:
         f"Машина: {profile.get('car_make') or '—'} {profile.get('car_model') or ''}\n"
         f"Тариф: {profile.get('tariff_plan')}, топливо: {profile.get('fuel_type')}\n"
         f"Аренда: {profile.get('rental_cost_per_day') or '—'} ₽/день\n\n"
-        f"Заполним по шагам — на любом шаге можно нажать «{SKIP_TEXT}»."
+        f"Заполним по шагам — «{SKIP_TEXT}» пропускает шаг, /cancel выходит из заполнения."
     )
     await message.answer(summary)
     await _advance(message, message.from_user.id, state, 0)
+
+
+@router.message(Command("cancel"), StateFilter("*"))
+async def cancel_profile(message: Message, state: FSMContext) -> None:
+    """Escape hatch from the step-by-step wizard — works in any step. Without
+    it, a user who abandoned /profile stays 'inside' the wizard and every
+    later message (including questions meant for the AI chat) gets captured as
+    a profile answer."""
+    if await state.get_state() is None:
+        await message.answer("Сейчас нечего отменять. Просто напишите вопрос — отвечу.")
+        return
+    await state.clear()
+    await message.answer("Вышли из заполнения профиля. Теперь можно задавать вопросы — например, «где сейчас лучше работать?».")
 
 
 async def _advance(reply_target: Message, telegram_id: int, state: FSMContext, step_index: int) -> None:
@@ -103,15 +116,22 @@ async def _advance(reply_target: Message, telegram_id: int, state: FSMContext, s
         await state.update_data(_districts={d["name"]: d["id"] for d in districts})
         await reply_target.answer(step["prompt"], reply_markup=_choice_keyboard([d["name"] for d in districts]))
     else:
-        await reply_target.answer(f"{step['prompt']}\n(или «-», чтобы пропустить)")
+        await reply_target.answer(f"{step['prompt']}\n(«-» — пропустить · /cancel — выйти)")
 
 
 @router.message(StateFilter(*_TEXT_STATES))
 async def handle_text_step(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    # Don't swallow an unknown command as a profile answer — commands the bot
+    # knows (/profile, /link, /cancel) are handled by earlier routers/handlers
+    # and never reach here; anything else starting with "/" is a mistake.
+    if text.startswith("/"):
+        await message.answer("Идёт пошаговое заполнение профиля. /cancel — выйти.")
+        return
+
     data = await state.get_data()
     step_index = data["_step_index"]
     step = STEPS[step_index]
-    text = (message.text or "").strip()
 
     if text not in ("-", "—", ""):
         if step["kind"] == "float":
