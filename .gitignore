@@ -21,3 +21,6 @@ apps/web/.env*.local
 # IDE
 .vscode/
 .idea/
+
+# Local DB dumps (contain user data — never commit)
+backups/

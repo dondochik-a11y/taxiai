@@ -6,7 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from bot.config import settings
-from bot.handlers import chat, profile, start
+from bot.handlers import chat, link, profile, start
 from bot.scheduler import notification_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +20,7 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dispatcher = Dispatcher()
     dispatcher.include_router(start.router)
+    dispatcher.include_router(link.router)  # /link command; before the catch-all
     dispatcher.include_router(profile.router)  # state-filtered; must come before the catch-all below
     dispatcher.include_router(chat.router)  # catch-all; must be registered last
 

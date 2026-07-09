@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, storeUserId } from "@/lib/apiClient";
+import { LinkTelegram } from "@/components/LinkTelegram";
 import type { District, User, UserCreate } from "@/lib/types";
 
 const TARIFFS = [
@@ -201,6 +202,10 @@ export default function OnboardingPage() {
           {submitting ? "Сохранение..." : "Начать работу"}
         </button>
       </form>
+
+      <div className="mt-4">
+        <LinkTelegram />
+      </div>
     </div>
   );
 }

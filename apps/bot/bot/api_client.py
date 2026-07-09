@@ -48,6 +48,18 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def create_link_code(self, user_id: str) -> dict:
+        resp = await self._client.post("/v1/link/code", json={"user_id": user_id})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def redeem_link_code_telegram(self, code: str, telegram_id: int) -> httpx.Response:
+        """Returns the raw response so the handler can distinguish 404/410
+        (bad/expired code) from success without raising."""
+        return await self._client.post(
+            "/v1/link/redeem-telegram", json={"code": code, "telegram_id": telegram_id}
+        )
+
     async def close(self) -> None:
         await self._client.aclose()
 

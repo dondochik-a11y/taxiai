@@ -30,3 +30,7 @@ export function getStoredUserId(): string | null {
 export function storeUserId(id: string): void {
   window.localStorage.setItem(LOCAL_USER_ID_KEY, id);
 }
+
+export function clearStoredUserId(): void {
+  window.localStorage.removeItem(LOCAL_USER_ID_KEY);
+}
