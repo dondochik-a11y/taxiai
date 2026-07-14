@@ -23,6 +23,8 @@
         <string>/Users/tim/Documents/work/taxi/apps/scraper/.venv/lib/python3.13/site-packages/certifi/cacert.pem</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
     <key>StartInterval</key>
     <integer>1800</integer>

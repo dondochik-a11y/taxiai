@@ -77,6 +77,34 @@ def restart_app() -> None:
     # cycle (detected via PROMO_MARK in the batch OCR below). Left best-effort.
 
 
+def screen_ready() -> tuple[bool, str]:
+    """Wake the screen and dismiss a non-secure keyguard. adb taps do NOT count
+    as user activity, so an unattended phone dims, sleeps and locks — after
+    which every tap lands on nothing and screenshots come back black/empty.
+    stay_on_while_plugged_in=7 prevents the sleep, but a reboot or a manual
+    lock still leaves a secure keyguard we cannot pass without the PIN."""
+    _adb_shell("input keyevent KEYCODE_WAKEUP; sleep 1; wm dismiss-keyguard; sleep 1")
+    if "mWakefulness=Awake" not in _adb_shell("dumpsys power"):
+        return False, "screen did not wake (mWakefulness != Awake)"
+    m = re.search(r"^\s*showing=(\w+)", _adb_shell("dumpsys window policy"), re.M)
+    if m and m.group(1) == "true":
+        return False, (
+            "secure lockscreen is up — unlock the phone once by hand "
+            "(with USB attached and stay_on_while_plugged_in=7 it then stays awake)"
+        )
+    return True, ""
+
+
+def ensure_radar_foreground() -> None:
+    """A batch tap can land on an in-app promo banner and hijack the sweep into
+    Chrome (seen live 2026-07-14: banner tap -> CustomTab -> every later batch
+    read 0). Back out and relaunch the radar if focus has drifted."""
+    if PKG not in _adb_shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"):
+        print("  foreground lost (promo banner tap?); backing out and relaunching")
+        _adb_shell("input keyevent KEYCODE_BACK; sleep 1")
+        restart_app()
+
+
 def paced_tap(points: list[dict]) -> None:
     """Tap every point in the batch, pacing on-device to dodge the rate limit."""
     parts = []
@@ -177,6 +205,11 @@ def main() -> int:
         print(f"no device (adb get-state='{device}'); is the phone connected?", file=sys.stderr)
         return 1
 
+    ok, why = screen_ready()
+    if not ok:
+        print(f"screen not ready: {why}", file=sys.stderr)
+        return 1
+
     reader = easyocr.Reader(["ru", "en"], gpu=False)
     batches = make_batches(TAP_POINTS)
     max_batches = int(os.environ.get("RADAR_MAX_BATCHES", "0"))  # 0 = all; >0 for testing
@@ -190,6 +223,7 @@ def main() -> int:
 
     restart_app()  # once: clean slate; markers self-expire, so no per-batch restart
     for i, batch in enumerate(batches):
+        ensure_radar_foreground()
         paced_tap(batch)
         screencap(shot)
         bubbles, limited = read_bubbles(reader, str(shot))
