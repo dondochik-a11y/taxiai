@@ -26,6 +26,12 @@ const SURGE_MAX = 2.8;
 
 export type MapMode = "demand" | "surge";
 
+const SOURCE_LABELS: Record<SurgeNow["source"], string> = {
+  radar: "реальный кэф (Радар)",
+  live: "реальные цены Яндекс Go",
+  synthetic: "синтетические данные",
+};
+
 function stepIndex(value: number, steps: string[]): number {
   return Math.min(steps.length - 1, Math.max(0, Math.round(value * (steps.length - 1))));
 }
@@ -43,8 +49,9 @@ function surgeColorFor(norm: number): { bg: string; ink: string } {
 interface MoscowMapProps {
   districts: District[];
   forecastByDistrict: Map<number, Forecast>;
-  /** Current кэф per district (/v1/surge/current) — real prices when the
-   * Yandex key is configured, synthetic feed otherwise. */
+  /** Current кэф per district (/v1/surge/current) — real radar readings when
+   * the scraper is feeding, real prices when the Yandex key is configured,
+   * synthetic feed otherwise. */
   surgeNowByDistrict?: Map<number, SurgeNow>;
   mode?: MapMode;
   onSelectDistrict?: (districtId: number) => void;
@@ -173,7 +180,7 @@ export function MoscowMap({
             <div className="text-[var(--text-secondary)] tabular">
               кэф сейчас ×{hovered.surgeNow.surge.toFixed(1)}{" "}
               <span className="text-[var(--text-muted)]">
-                ({hovered.surgeNow.source === "live" ? "реальные цены Яндекс Go" : "синтетические данные"})
+                ({SOURCE_LABELS[hovered.surgeNow.source]})
               </span>
             </div>
           )}

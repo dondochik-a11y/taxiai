@@ -16,9 +16,12 @@ class KefObservation(Base):
     geo-referencing is best-effort (area_hint holds the nearest OCR'd map label).
 
     Kept SEPARATE from the clean demand_snapshots training table so imprecise
-    readings never silently pollute it — mirroring price_observations. A later
-    ETL step promotes trustworthy rows (known district, sane kef) into
-    demand_snapshots with source=RADAR."""
+    readings never silently pollute it — mirroring price_observations. The
+    surge radar reads this table directly as its top-priority source
+    (surge_service._radar_surge): rows with a resolved district and a sane kef
+    win over live prices and synthetic data within a freshness window.
+    Promotion into the ML training data is deliberately deferred until months
+    of radar history exist."""
 
     __tablename__ = "kef_observations"
     __table_args__ = (

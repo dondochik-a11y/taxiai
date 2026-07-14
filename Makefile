@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate seed train patterns web-dev backup prod-up prod-logs prod-migrate
+.PHONY: up down logs migrate seed train patterns test web-dev backup prod-up prod-logs prod-migrate
 
 up:
 	docker compose -f infra/docker-compose.yml up -d --build
@@ -20,6 +20,9 @@ train:
 
 patterns:
 	docker compose -f infra/docker-compose.yml exec api python -m app.ml.pattern_mining
+
+test:
+	docker compose -f infra/docker-compose.yml exec api pytest -q
 
 web-dev:
 	cd apps/web && pnpm dev

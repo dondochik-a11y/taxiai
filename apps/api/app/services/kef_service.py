@@ -3,10 +3,13 @@
 Writes raw rows into kef_observations. Geo is best-effort: if a reading carries
 no district_id but an area_hint (an OCR'd map label), we try a case-insensitive
 match against district names — anything unmatched is stored district-less rather
-than guessed, so downstream ETL can decide what to trust.
+than guessed. Rows with a resolved district feed the surge radar directly
+(surge_service._radar_surge, the top-priority source); district-less rows are
+kept for audit only.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import func
@@ -16,6 +19,8 @@ from app.models.district import District
 from app.models.enums import DataSource
 from app.models.kef_observation import KefObservation
 from app.schemas.kef import KefIngestIn
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_district_id(db: Session, area_hint: str | None) -> int | None:
@@ -60,4 +65,7 @@ def ingest(db: Session, payload: KefIngestIn) -> tuple[int, int]:
         stored += 1
 
     db.commit()
+    logger.info(
+        "kef ingest: stored=%d resolved=%d user=%s", stored, resolved, payload.user_id
+    )
     return stored, resolved

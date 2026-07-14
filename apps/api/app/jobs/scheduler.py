@@ -12,7 +12,8 @@
   see app/jobs/ingest_opensky.py.
 - once a day: re-run pattern mining over accumulated history; sync real public
   holidays (isDayOff.ru, live mode) and real upcoming flights (AviationStack,
-  live mode) — both no-ops in mock mode.
+  live mode) — both no-ops in mock mode; prune kef_observations older than
+  90 days and log last-hour radar coverage.
 - weekly (Mon 03:30 UTC): retrain the demand model over the full accumulated
   history in a subprocess, then immediately regenerate forecasts.
 
@@ -123,6 +124,36 @@ def _run_retrain_job() -> None:
     _run_forecast_job()
 
 
+def _run_kef_retention_job() -> None:
+    """kef_observations grows ~5k rows/day from the radar scraper; 90 days is
+    plenty for the future promote-into-training decision while keeping the
+    table lean. The coverage line doubles as the daily is-the-scraper-alive
+    signal."""
+    from sqlalchemy import text
+
+    session = SessionLocal()
+    try:
+        deleted = session.execute(
+            text("DELETE FROM kef_observations WHERE observed_at < now() - interval '90 days'")
+        ).rowcount
+        coverage = session.execute(
+            text(
+                "SELECT count(DISTINCT district_id) FROM kef_observations "
+                "WHERE observed_at > now() - interval '1 hour' AND district_id IS NOT NULL"
+            )
+        ).scalar()
+        session.commit()
+        logger.info(
+            "kef retention: deleted %d; radar coverage last hour: %d districts",
+            deleted,
+            coverage or 0,
+        )
+    except Exception:
+        logger.exception("kef retention failed")
+    finally:
+        session.close()
+
+
 def _run_opensky_job() -> None:
     from app.jobs.ingest_opensky import sync_realtime_arrivals
 
@@ -145,6 +176,7 @@ def main() -> None:
     scheduler.add_job(_run_pattern_mining_job, "interval", hours=24, id="pattern_mining_tick")
     scheduler.add_job(_run_calendar_sync_job, "interval", hours=24, id="calendar_sync_tick")
     scheduler.add_job(_run_flights_sync_job, "interval", hours=24, id="flights_sync_tick")
+    scheduler.add_job(_run_kef_retention_job, "interval", hours=24, id="kef_retention_tick")
     # Mon 03:30 UTC = 06:30 MSK — night lull, and the freshly retrained model
     # is in place before the Monday morning rush.
     scheduler.add_job(_run_retrain_job, "cron", day_of_week="mon", hour=3, minute=30, id="weekly_retrain")

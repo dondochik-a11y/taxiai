@@ -16,8 +16,8 @@ router = APIRouter(prefix="/kef", tags=["kef"])
 @router.post("/ingest", response_model=KefIngestOut, status_code=201)
 def ingest_kef(payload: KefIngestIn, db: Session = Depends(get_db)) -> KefIngestOut:
     """Store surge-coefficient readings (already parsed). Rows land in
-    kef_observations (raw); a later ETL step promotes the trusted ones into
-    demand_snapshots."""
+    kef_observations (raw); the surge radar reads the district-resolved ones
+    directly as its top-priority source (surge_service._radar_surge)."""
     stored, resolved = kef_service.ingest(db, payload)
     return KefIngestOut(stored=stored, resolved_districts=resolved)
 
