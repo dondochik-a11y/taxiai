@@ -39,11 +39,23 @@ export SSL_CERT_FILE="$(.venv/bin/python -m certifi)"   # macOS framework-python
 ```
 
 ## Schedule (every 30 min)
-Edit the paths/URL in `com.taxiai.radar.plist`, then:
+**Deploy outside ~/Documents first.** launchd agents have no TCC access to
+Documents/Desktop/Downloads — pointed there, the job hangs forever at Python
+startup (0 CPU, empty log) on a consent prompt nobody sees. The live copy runs
+from `~/.taxiai/scraper`:
+```bash
+mkdir -p ~/.taxiai/scraper
+cp radar_scraper.py tap_points.json requirements.txt ~/.taxiai/scraper/
+cd ~/.taxiai/scraper && python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+Edit the paths/URL in `com.taxiai.radar.plist` (they must point to
+`~/.taxiai/scraper`), then:
 ```bash
 cp com.taxiai.radar.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.taxiai.radar.plist
 ```
+After changing `radar_scraper.py`/`tap_points.json` in the repo, re-copy them
+to `~/.taxiai/scraper/` — the repo is the source of truth, launchd runs the copy.
 
 ## Re-calibration
 If the map view drifts, re-derive `tap_points.json`: screenshot the fixed view,

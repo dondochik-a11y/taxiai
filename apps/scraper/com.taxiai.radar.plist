@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Edit the three paths and the RADAR_API_URL, then install per README. -->
+<!-- Edit the three paths and the RADAR_API_URL, then install per README.
+     WARNING: do NOT point the paths inside ~/Documents (or Desktop/Downloads):
+     launchd agents have no TCC access there, and the job hangs forever at
+     interpreter startup on a consent prompt nobody sees (0 CPU, empty log).
+     Deploy the script + venv to a plain home path instead, e.g.
+     ~/.taxiai/scraper — that is where the live copy runs from. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
