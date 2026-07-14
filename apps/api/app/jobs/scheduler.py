@@ -14,6 +14,9 @@
   holidays (isDayOff.ru, live mode) and real upcoming flights (AviationStack,
   live mode) — both no-ops in mock mode; prune kef_observations older than
   90 days and log last-hour radar coverage.
+- every PRICING_POLL_MINUTES (default 30): poll real Yandex ride prices per
+  district into price_observations (live mode only — no-op until clid+apikey
+  are set), feeding surge_service's "live" source.
 - weekly (Mon 03:30 UTC): retrain the demand model over the full accumulated
   history in a subprocess, then immediately regenerate forecasts.
 
@@ -32,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from apscheduler.schedulers.blocking import BlockingScheduler  # noqa: E402
 
 from app.db.base import Base  # noqa: E402,F401  (must import before any single app.models.* submodule)
+from app.core.config import get_settings  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -124,6 +128,20 @@ def _run_retrain_job() -> None:
     _run_forecast_job()
 
 
+def _run_price_poll_job() -> None:
+    from app.jobs.poll_prices import poll_prices
+
+    session = SessionLocal()
+    try:
+        n = poll_prices(session)
+        if n:
+            logger.info("Polled %d real Yandex ride prices", n)
+    except Exception:
+        logger.exception("Price poll failed")
+    finally:
+        session.close()
+
+
 def _run_kef_retention_job() -> None:
     """kef_observations grows ~5k rows/day from the radar scraper; 90 days is
     plenty for the future promote-into-training decision while keeping the
@@ -177,6 +195,13 @@ def main() -> None:
     scheduler.add_job(_run_calendar_sync_job, "interval", hours=24, id="calendar_sync_tick")
     scheduler.add_job(_run_flights_sync_job, "interval", hours=24, id="flights_sync_tick")
     scheduler.add_job(_run_kef_retention_job, "interval", hours=24, id="kef_retention_tick")
+    # No-op until Yandex clid+apikey land in .env; cadence per negotiated limits.
+    scheduler.add_job(
+        _run_price_poll_job,
+        "interval",
+        minutes=get_settings().pricing_poll_minutes,
+        id="price_poll_tick",
+    )
     # Mon 03:30 UTC = 06:30 MSK — night lull, and the freshly retrained model
     # is in place before the Monday morning rush.
     scheduler.add_job(_run_retrain_job, "cron", day_of_week="mon", hour=3, minute=30, id="weekly_retrain")
