@@ -3,6 +3,7 @@ aiogram, no Telegram token needed."""
 from __future__ import annotations
 
 from bot.render import (
+    map_url,
     render_daily_plan,
     render_finance_summary,
     render_kef_table,
@@ -10,6 +11,22 @@ from bot.render import (
 )
 
 DISTRICTS = {1: "Хамовники", 2: "Арбат", 3: "Тверской"}
+
+BASE = "https://93.189.228.203.sslip.io"
+
+
+def test_map_url_with_district() -> None:
+    assert map_url(BASE, 7) == "https://93.189.228.203.sslip.io/?district=7"
+
+
+def test_map_url_without_district() -> None:
+    assert map_url(BASE) == "https://93.189.228.203.sslip.io/"
+    assert map_url(BASE, None) == "https://93.189.228.203.sslip.io/"
+
+
+def test_map_url_normalises_trailing_slash() -> None:
+    assert map_url(BASE + "/", 3) == "https://93.189.228.203.sslip.io/?district=3"
+    assert map_url(BASE + "/") == "https://93.189.228.203.sslip.io/"
 
 
 def test_recommendation_move() -> None:

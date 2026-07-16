@@ -8,10 +8,11 @@ import asyncio
 
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.api_client import api_client
-from bot.render import render_kef_table
+from bot.config import settings
+from bot.render import map_url, render_kef_table
 
 router = Router(name="kef")
 
@@ -22,4 +23,17 @@ async def handle_kef(message: Message) -> None:
         api_client.get_current_surge(), api_client.get_districts()
     )
     district_names = {d["id"]: d["name"] for d in districts}
-    await message.answer(render_kef_table(surge_rows, district_names), parse_mode="HTML")
+    top = max(surge_rows, key=lambda r: r["surge"], default=None)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗺 Открыть карту",
+                    url=map_url(settings.web_base_url, top["district_id"] if top else None),
+                )
+            ]
+        ]
+    )
+    await message.answer(
+        render_kef_table(surge_rows, district_names), parse_mode="HTML", reply_markup=keyboard
+    )

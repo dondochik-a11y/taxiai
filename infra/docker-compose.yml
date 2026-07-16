@@ -68,6 +68,9 @@ services:
       - ../.env
     environment:
       API_BASE_URL: http://api:8000
+      # Public PWA base for the map deep-link buttons; no web service runs in
+      # dev, so point at prod so the links still resolve.
+      WEB_BASE_URL: https://93.189.228.203.sslip.io
       REDIS_URL: redis://redis:6379/1  # FSM state; db 1 keeps it apart from the api's db 0
     depends_on:
       - api
