@@ -54,10 +54,10 @@ RATE_LIMIT_MARKS = ("лимит", "слишком частые")  # "Дости�
 PROMO_MARK = "таксопарк"
 # A fullscreen subscription paywall ("Полный доступ … Пробный период") pops up
 # some seconds AFTER launch once the app has network; every tap then lands on
-# it and the whole sweep reads zero (seen 2026-07-17). Same package, so the
-# foreground guard can't catch it — detect by OCR text and tap its X away.
+# it and the whole sweep reads zero (seen 2026-07-17) — and its trial button
+# opens a Chrome payment page. Same package, so the foreground guard can't
+# catch it — detect by OCR text and close with BACK before any batch taps.
 PAYWALL_MARKS = ("полный доступ", "пробный период", "начать пробный")
-PAYWALL_CLOSE_X, PAYWALL_CLOSE_Y = 988, 194  # the ✕, top-right on the 1080x2400 screen
 
 
 # ---- adb helpers ------------------------------------------------------------
@@ -71,7 +71,7 @@ def _adb_shell(cmd: str) -> str:
     return subprocess.run(base + ["shell", cmd], capture_output=True, text=True).stdout
 
 
-def restart_app() -> None:
+def restart_app(reader: easyocr.Reader | None = None) -> None:
     """Clear all tap bubbles by relaunching; the map camera is restored, so the
     calibration still holds. Sleeps run on the device (host sleep is fine too)."""
     _adb_shell(f"am force-stop {PKG}")
@@ -81,6 +81,23 @@ def restart_app() -> None:
     # An "Наш таксопарк" promo popup appears on launch only occasionally and sits
     # bottom-left; if it shows, at worst a few southern points are missed that
     # cycle (detected via PROMO_MARK in the batch OCR below). Left best-effort.
+    if reader is not None:
+        dismiss_paywall(reader)
+
+
+def dismiss_paywall(reader: easyocr.Reader) -> None:
+    """The subscription paywall covers the map a few seconds after launch and
+    swallows every tap; its trial button even opens a Chrome payment page, so
+    NEVER batch-tap while it may be up. BACK closes it (the app stays alive)."""
+    shot = HERE / "_paywall_check.png"
+    for _ in range(3):
+        time.sleep(4)  # the paywall pops in asynchronously once network is up
+        screencap(shot)
+        _, _, paywall = read_bubbles(reader, str(shot))
+        if not paywall:
+            return
+        print("  paywall overlay detected; sending BACK")
+        _adb_shell("input keyevent KEYCODE_BACK; sleep 1")
 
 
 def screen_ready() -> tuple[bool, str]:
@@ -101,14 +118,14 @@ def screen_ready() -> tuple[bool, str]:
     return True, ""
 
 
-def ensure_radar_foreground() -> None:
+def ensure_radar_foreground(reader: easyocr.Reader | None = None) -> None:
     """A batch tap can land on an in-app promo banner and hijack the sweep into
     Chrome (seen live 2026-07-14: banner tap -> CustomTab -> every later batch
     read 0). Back out and relaunch the radar if focus has drifted."""
     if PKG not in _adb_shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"):
         print("  foreground lost (promo banner tap?); backing out and relaunching")
         _adb_shell("input keyevent KEYCODE_BACK; sleep 1")
-        restart_app()
+        restart_app(reader)
 
 
 def paced_tap(points: list[dict]) -> None:
@@ -227,17 +244,19 @@ def main() -> int:
     all_readings: list[dict] = []
     shot = HERE / "_last_batch.png"
 
-    restart_app()  # once: clean slate; markers self-expire, so no per-batch restart
+    restart_app(reader)  # once: clean slate; markers self-expire, so no per-batch restart
     for i, batch in enumerate(batches):
-        ensure_radar_foreground()
+        ensure_radar_foreground(reader)
         paced_tap(batch)
         screencap(shot)
         bubbles, limited, paywall = read_bubbles(reader, str(shot))
         if paywall:
             # The wasted taps hit the overlay, not the map, so no markers were
-            # spent — safe to retap the same batch right away.
-            print("  paywall overlay detected; dismissing and retrying batch")
-            _adb_shell(f"input tap {PAYWALL_CLOSE_X} {PAYWALL_CLOSE_Y}; sleep 2")
+            # spent — safe to retap the same batch after closing it. One of
+            # them may have opened the Chrome payment page: relaunch cleanly.
+            print("  paywall overlay detected mid-batch; relaunching and retrying")
+            _adb_shell("input keyevent KEYCODE_BACK; sleep 1")
+            restart_app(reader)
             paced_tap(batch)
             screencap(shot)
             bubbles, limited, _ = read_bubbles(reader, str(shot))
