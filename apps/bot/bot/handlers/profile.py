@@ -19,7 +19,14 @@ router = Router(name="profile")
 
 SKIP_TEXT = "Пропустить"
 SKIP_DATA = "skip"
-WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri"]
+
+# Which work_schedule keys (mon..sun) each schedule-days answer maps to.
+SCHEDULE_DAY_SETS = {
+    "пн–пт": ["mon", "tue", "wed", "thu", "fri"],
+    "каждый день": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "выходные": ["sat", "sun"],
+}
+DEFAULT_SCHEDULE_DAYS = "пн–пт"
 
 TARIFFS = ["economy", "comfort", "comfort_plus", "business"]
 FUEL_TYPES = ["petrol92", "petrol95", "diesel", "gas", "electric"]
@@ -34,6 +41,7 @@ class ProfileStates(StatesGroup):
     fuel_price = State()
     rental_cost = State()
     home_district = State()
+    schedule_days = State()
     schedule_start = State()
     schedule_end = State()
 
@@ -47,6 +55,7 @@ STEPS = [
     {"state": ProfileStates.fuel_price, "field": "fuel_price_per_liter", "kind": "float", "prompt": "Цена топлива, ₽/л?"},
     {"state": ProfileStates.rental_cost, "field": "rental_cost_per_day", "kind": "float", "prompt": "Аренда, ₽/день?"},
     {"state": ProfileStates.home_district, "field": "home_district_id", "kind": "district", "prompt": "Домашний район?"},
+    {"state": ProfileStates.schedule_days, "field": "_schedule_days", "kind": "choice", "options": list(SCHEDULE_DAY_SETS), "prompt": "В какие дни обычно работаете?"},
     {"state": ProfileStates.schedule_start, "field": "_schedule_start", "kind": "text", "prompt": "Во сколько обычно начинаете смену? (например, 08:00)"},
     {"state": ProfileStates.schedule_end, "field": "_schedule_end", "kind": "text", "prompt": "Во сколько обычно заканчиваете смену? (например, 20:00)"},
 ]
@@ -182,7 +191,8 @@ async def _finish_profile(reply_target: Message, telegram_id: int, state: FSMCon
 
     start, end = data.get("_schedule_start"), data.get("_schedule_end")
     if start and end and start not in ("-", "—") and end not in ("-", "—"):
-        profile_update["work_schedule"] = {day: [f"{start}-{end}"] for day in WEEKDAY_KEYS}
+        days = SCHEDULE_DAY_SETS.get(data.get("_schedule_days"), SCHEDULE_DAY_SETS[DEFAULT_SCHEDULE_DAYS])
+        profile_update["work_schedule"] = {day: [f"{start}-{end}"] for day in days}
 
     await state.clear()
 
