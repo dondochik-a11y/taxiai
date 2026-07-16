@@ -14,6 +14,16 @@ function MapIcon({ className }: IconProps) {
   );
 }
 
+function CalendarClockIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M3.5 9.5h17M8.5 3v4M15.5 3v4" />
+      <path d="M12 12.5v2.7l2 1.3" />
+    </svg>
+  );
+}
+
 function RouteIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -54,6 +64,7 @@ function UserIcon({ className }: IconProps) {
 
 const NAV_ITEMS = [
   { href: "/", label: "Карта", Icon: MapIcon },
+  { href: "/plan", label: "План", Icon: CalendarClockIcon },
   { href: "/trips", label: "Поездки", Icon: RouteIcon },
   { href: "/finance", label: "Финансы", Icon: WalletIcon },
   { href: "/chat", label: "AI-чат", Icon: ChatIcon },
@@ -89,7 +100,7 @@ export function MobileTabBar() {
   const pathname = usePathname();
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-[rgba(13,13,13,0.92)] backdrop-blur pb-safe">
-      <div className="grid grid-cols-5">
+      <div className="grid grid-cols-6">
         {NAV_ITEMS.map(({ href, label, Icon }) => {
           const active = pathname === href;
           return (
