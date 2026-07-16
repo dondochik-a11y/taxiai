@@ -19,7 +19,8 @@ from aiogram.types import (
 )
 
 from bot.api_client import api_client
-from bot.render import render_recommendation
+from bot.config import settings
+from bot.render import map_url, render_recommendation
 
 router = Router(name="where")
 
@@ -99,6 +100,19 @@ async def _send_recommendation(
 
     districts = await api_client.get_districts()
     district_names = {d["id"]: d["name"] for d in districts}
+    # The one-tap location keyboard is one_time_keyboard, so it collapses on its
+    # own; the recommendation carries the map deep link on an inline button
+    # instead (a message can hold only one markup).
     await reply_target.answer(
-        render_recommendation(rec, district_names), reply_markup=ReplyKeyboardRemove()
+        render_recommendation(rec, district_names),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🗺 Открыть на карте",
+                        url=map_url(settings.web_base_url, rec.get("recommended_district_id")),
+                    )
+                ]
+            ]
+        ),
     )

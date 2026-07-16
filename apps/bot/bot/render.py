@@ -19,6 +19,16 @@ KEF_SOURCE_LABELS = {
 }
 
 
+def map_url(base: str, district_id: int | None = None) -> str:
+    """Deep link into the PWA map (see the Phase 3 deep-link contract):
+    district-focused when an id is given, plain map otherwise. `base` is the
+    bot's web_base_url; a trailing slash is normalised away."""
+    base = base.rstrip("/")
+    if district_id is None:
+        return f"{base}/"
+    return f"{base}/?district={district_id}"
+
+
 def render_recommendation(rec: dict, district_names: dict[int, str]) -> str:
     target_id = rec["recommended_district_id"]
     target = district_names.get(target_id, f"район #{target_id}")
