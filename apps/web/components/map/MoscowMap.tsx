@@ -120,6 +120,9 @@ interface MoscowMapProps {
   surgeNowByDistrict?: Map<number, SurgeNow>;
   mode?: MapMode;
   onSelectDistrict?: (districtId: number) => void;
+  /** Deep-link focus: center the map on this district and open its info panel
+   * once the map + data are ready. Unknown ids are ignored. */
+  focusDistrictId?: number;
 }
 
 export function MoscowMap({
@@ -128,6 +131,7 @@ export function MoscowMap({
   surgeNowByDistrict,
   mode = "demand",
   onSelectDistrict,
+  focusDistrictId,
 }: MoscowMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -141,6 +145,9 @@ export function MoscowMap({
   const [mapReady, setMapReady] = useState(false);
   const [shapes, setShapes] = useState<DistrictShapeCollection | null>(null);
   const [hovered, setHovered] = useState<HoverInfo | null>(null);
+  // Tracks the last district id we auto-focused via deep link, so the periodic
+  // surge/forecast refreshes don't keep re-centering or re-opening the panel.
+  const focusedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -365,6 +372,26 @@ export function MoscowMap({
     if (!map || !mapReady || !map.getLayer(HOVER_LAYER)) return;
     map.setFilter(HOVER_LAYER, ["==", ["get", "district_id"], hovered?.district.id ?? -1]);
   }, [hovered, mapReady]);
+
+  // Deep-link focus: once the map and district list are ready, center on the
+  // requested district and open its info panel (as if tapped). We only act when
+  // the id itself changes — the ref guard keeps 5-min data refreshes from
+  // re-centering. An id with no matching district is silently ignored, and the
+  // effect retries harmlessly until the districts finish loading.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || focusDistrictId == null) return;
+    if (focusedIdRef.current === focusDistrictId) return;
+    const d = districts.find((x) => x.id === focusDistrictId);
+    if (!d) return;
+    focusedIdRef.current = focusDistrictId;
+    map.flyTo({ center: [d.centroid_lng, d.centroid_lat], zoom: 11.5, duration: 800 });
+    setHovered({
+      district: d,
+      forecast: forecastByDistrict.get(d.id),
+      surgeNow: surgeNowByDistrict?.get(d.id),
+    });
+  }, [focusDistrictId, mapReady, districts, forecastByDistrict, surgeNowByDistrict]);
 
   const legendSteps = mode === "surge" ? SURGE_STEPS : SEQUENTIAL_STEPS;
   const hoveredAgo = hovered?.surgeNow ? agoLabel(hovered.surgeNow.observed_at) : null;

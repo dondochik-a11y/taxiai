@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/apiClient";
 import { useStoredUserId } from "@/lib/useStoredUserId";
 import type { District, Forecast, Recommendation, SurgeNow, User } from "@/lib/types";
@@ -12,12 +13,28 @@ const MODES: { value: MapMode; label: string }[] = [
   { value: "demand", label: "спрос" },
   { value: "surge", label: "кэф" },
 ];
+const BOT_URL = "https://t.me/taxiai1bot";
+
+// Reads the `?district=<id>` deep link. useSearchParams() opts the subtree out
+// of prerendering, so it lives in its own component behind a <Suspense> boundary
+// (App Router requirement) and lifts the parsed id up via a stable callback.
+function DistrictParamReader({ onDistrict }: { onDistrict: (id: number) => void }) {
+  const searchParams = useSearchParams();
+  const raw = searchParams.get("district");
+  useEffect(() => {
+    if (raw == null) return;
+    const id = Number(raw);
+    if (Number.isInteger(id)) onDistrict(id);
+  }, [raw, onDistrict]);
+  return null;
+}
 
 export default function DashboardPage() {
   const [districts, setDistricts] = useState<District[]>([]);
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [horizon, setHorizon] = useState(30);
   const [mode, setMode] = useState<MapMode>("demand");
+  const [focusDistrictId, setFocusDistrictId] = useState<number | undefined>(undefined);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [loadingRec, setLoadingRec] = useState(false);
@@ -58,6 +75,12 @@ export default function DashboardPage() {
     surgeNow.forEach((s) => map.set(s.district_id, s));
     return map;
   }, [surgeNow]);
+
+  // Deep link `?district=<id>`: switch to кэф mode and focus that district.
+  const focusOnDistrict = useCallback((id: number) => {
+    setMode("surge");
+    setFocusDistrictId(id);
+  }, []);
 
   async function requestRecommendation(lat: number, lng: number) {
     try {
@@ -112,6 +135,9 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-3 md:gap-4">
+      <Suspense fallback={null}>
+        <DistrictParamReader onDistrict={focusOnDistrict} />
+      </Suspense>
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg md:text-xl font-semibold">Карта спроса</h1>
         <div className="flex items-center rounded-full border border-white/10 overflow-hidden shrink-0">
@@ -147,14 +173,25 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <button
-        onClick={askForRecommendation}
-        disabled={loadingRec}
-        className="btn-primary w-full md:w-auto md:self-start"
-        style={{ background: "var(--status-good)", color: "#000" }}
-      >
-        {loadingRec ? "Ищу лучший район..." : "🎯 Куда ехать?"}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={askForRecommendation}
+          disabled={loadingRec}
+          className="btn-primary w-full md:w-auto"
+          style={{ background: "var(--status-good)", color: "#000" }}
+        >
+          {loadingRec ? "Ищу лучший район..." : "🎯 Куда ехать?"}
+        </button>
+        <a
+          href={BOT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chip shrink-0"
+          title="Уведомления и «куда ехать?» прямо в Telegram"
+        >
+          ✈️ Открыть бота в Telegram
+        </a>
+      </div>
 
       {userId === null && (
         <p className="text-sm text-[var(--text-secondary)]">
@@ -199,6 +236,7 @@ export default function DashboardPage() {
         forecastByDistrict={forecastByDistrict}
         surgeNowByDistrict={surgeNowByDistrict}
         mode={mode}
+        focusDistrictId={focusDistrictId}
       />
     </div>
   );
