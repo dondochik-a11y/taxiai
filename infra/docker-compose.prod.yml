@@ -75,6 +75,8 @@ services:
       - ../.env
     environment:
       API_BASE_URL: http://api:8000
+      # Public PWA base for the map deep-link buttons — same host Caddy serves.
+      WEB_BASE_URL: https://${DOMAIN:?set DOMAIN in .env}
       REDIS_URL: redis://redis:6379/1  # FSM state; db 1 keeps it apart from the api's db 0
     depends_on:
       - api
