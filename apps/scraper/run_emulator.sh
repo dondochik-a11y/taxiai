@@ -17,5 +17,10 @@ PARK_LAT=55.4759
   "$ADB" -s emulator-5554 emu geo fix "$PARK_LNG" "$PARK_LAT"
 ) &
 
+# -dns-server: pin public resolvers. Without it the emulator inherits the
+# host's DNS at boot; a VPN utility on the Mac swaps that to a fake-ip
+# resolver (198.18.0.2) unreachable from the guest, and every app request
+# then dies in DNS (all-zero sweeps, 2026-07-17).
 exec "$SDK/emulator/emulator" -avd radar \
-  -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+  -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
+  -dns-server 8.8.8.8,1.1.1.1
