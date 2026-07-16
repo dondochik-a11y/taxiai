@@ -1,16 +1,22 @@
-"""Current surge coefficient per district — a three-source cascade,
+"""Current surge coefficient per district — a five-source cascade,
 best source wins per district:
 
 1. Radar path: real kef readings OCR'd off the "Радар кэфа" app
    (kef_observations rows with a resolved district). Trust-filtered for OCR
    noise and aggregated by median within a 45-minute freshness window.
-2. Live path: the latest fresh price_observations row per district, divided by
+2. Stale-radar path: same readings aged 45–180 minutes. A 2-hour-old real kef
+   still describes the district better than a synthetic number.
+3. Near-radar path: districts with no own reading (off the scraper's screen or
+   an OCR miss) take the median of their nearest radar-covered neighbours —
+   surge is spatially smooth at district scale.
+4. Live path: the latest fresh price_observations row per district, divided by
    that district's rolling baseline — the 15th percentile of prices over the
    last 7 days for the same reference route. The low percentile approximates
    the no-surge price without requiring the district to ever be fully quiet;
    the coefficient is clamped to >= 1.0.
-3. Synthetic fallback: the latest demand_snapshots.surge_multiplier per
-   district, which the worker's 5-minute tick keeps fresh.
+5. Synthetic fallback: the latest demand_snapshots.surge_multiplier per
+   district, which the worker's 5-minute tick keeps fresh. Only reached when
+   the radar has produced nothing for 3 hours (scraper/emulator down).
 
 The response marks each row's source so the UI can say honestly whether the
 number is real.
@@ -24,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.demand import DemandSnapshot
+from app.models.district import District
 from app.models.kef_observation import KefObservation
 from app.models.pricing import PriceObservation
 
@@ -31,6 +38,12 @@ from app.models.pricing import PriceObservation
 # duration and some slack. Deliberately wider than the synthetic 30-minute
 # window: a 40-minute-old real reading still beats a fresh synthetic one.
 RADAR_FRESH_MINUTES = 45
+# Readings older than fresh but younger than this still beat synthetic.
+RADAR_STALE_MINUTES = 180
+# Spatial fill: median over this many nearest radar-covered districts.
+RADAR_NEAR_NEIGHBORS = 5
+# ...but only when there is a meaningful covered set to borrow from.
+RADAR_NEAR_MIN_COVERED = 10
 # Yandex kef realistically tops out around 3–4; anything above this is an OCR
 # misread (e.g. "18" for "1.8") that the ingest schema's loose bound let through.
 RADAR_KEF_MAX_PLAUSIBLE = 6.0
@@ -46,6 +59,9 @@ BASELINE_MIN_SAMPLES = 10
 def get_current_surge(db: Session) -> list[dict]:
     now = datetime.now(timezone.utc)
     rows = _radar_surge(db, now)
+    covered = {r["district_id"] for r in rows}
+    rows.extend(_radar_stale_surge(db, now, exclude=covered))
+    rows.extend(_radar_near_surge(db, rows))
     covered = {r["district_id"] for r in rows}
     rows.extend(_live_surge(db, now, exclude=covered))
     covered = {r["district_id"] for r in rows}
@@ -75,8 +91,13 @@ def aggregate_kef(values: list[float]) -> float | None:
     return round(median(values), 2)
 
 
-def _radar_surge(db: Session, now: datetime) -> list[dict]:
-    fresh_after = now - timedelta(minutes=RADAR_FRESH_MINUTES)
+def _radar_window(
+    db: Session,
+    since: datetime,
+    until: datetime,
+    source: str,
+    exclude: set[int] = frozenset(),
+) -> list[dict]:
     rows = db.execute(
         select(
             KefObservation.district_id,
@@ -84,13 +105,16 @@ def _radar_surge(db: Session, now: datetime) -> list[dict]:
             KefObservation.kef_max,
             KefObservation.observed_at,
         ).where(
-            KefObservation.observed_at >= fresh_after,
+            KefObservation.observed_at >= since,
+            KefObservation.observed_at < until,
             KefObservation.district_id.is_not(None),
         )
     ).all()
 
     by_district: dict[int, dict] = {}
     for district_id, kef_min, kef_max, observed_at in rows:
+        if district_id in exclude:
+            continue
         value = radar_reading_value(kef_min, kef_max)
         if value is None:
             continue
@@ -109,7 +133,71 @@ def _radar_surge(db: Session, now: datetime) -> list[dict]:
                 "district_id": district_id,
                 "surge": surge,
                 "observed_at": group["observed_at"],
-                "source": "radar",
+                "source": source,
+            }
+        )
+    return out
+
+
+def _radar_surge(db: Session, now: datetime) -> list[dict]:
+    return _radar_window(db, now - timedelta(minutes=RADAR_FRESH_MINUTES), now, "radar")
+
+
+def _radar_stale_surge(db: Session, now: datetime, exclude: set[int]) -> list[dict]:
+    return _radar_window(
+        db,
+        now - timedelta(minutes=RADAR_STALE_MINUTES),
+        now - timedelta(minutes=RADAR_FRESH_MINUTES),
+        "radar_stale",
+        exclude=exclude,
+    )
+
+
+def nearest_surge_median(
+    lat: float, lng: float, covered: list[tuple[float, float, float]], k: int = RADAR_NEAR_NEIGHBORS
+) -> float | None:
+    """Median surge of the k covered districts nearest to (lat, lng).
+    `covered` is (centroid_lat, centroid_lng, surge). Equirectangular distance
+    is plenty at city scale."""
+    if not covered:
+        return None
+    ranked = sorted(
+        covered, key=lambda c: (c[0] - lat) ** 2 + ((c[1] - lng) * 0.56) ** 2  # cos(55.7°)
+    )
+    return round(median(c[2] for c in ranked[:k]), 2)
+
+
+def _radar_near_surge(db: Session, radar_rows: list[dict]) -> list[dict]:
+    """Spatial fill for districts the radar didn't cover: median of the nearest
+    radar-covered neighbours. Runs on the already-fetched radar tiers only —
+    a district is never filled from live/synthetic values."""
+    if len(radar_rows) < RADAR_NEAR_MIN_COVERED:
+        return []
+    centroids = {
+        district_id: (float(lat), float(lng))
+        for district_id, lat, lng in db.execute(
+            select(District.id, District.centroid_lat, District.centroid_lng)
+        ).all()
+    }
+    covered_ids = {r["district_id"] for r in radar_rows}
+    covered = [
+        (*centroids[r["district_id"]], r["surge"]) for r in radar_rows if r["district_id"] in centroids
+    ]
+    observed_at = max(r["observed_at"] for r in radar_rows)
+
+    out = []
+    for district_id, (lat, lng) in centroids.items():
+        if district_id in covered_ids:
+            continue
+        surge = nearest_surge_median(lat, lng, covered)
+        if surge is None:
+            continue
+        out.append(
+            {
+                "district_id": district_id,
+                "surge": surge,
+                "observed_at": observed_at,
+                "source": "radar_near",
             }
         )
     return out

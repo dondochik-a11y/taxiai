@@ -28,6 +28,8 @@ export type MapMode = "demand" | "surge";
 
 const SOURCE_LABELS: Record<SurgeNow["source"], string> = {
   radar: "реальный кэф (Радар)",
+  radar_stale: "реальный кэф (Радар, >45 мин назад)",
+  radar_near: "реальный кэф соседних районов",
   live: "реальные цены Яндекс Go",
   synthetic: "синтетические данные",
 };

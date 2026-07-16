@@ -19,9 +19,16 @@ from sqlalchemy.orm import Session
 from app.ml import features as feat
 from app.models.district import District
 from app.models.forecast import Forecast
+from app.services import kef_profile_service, surge_service
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 MODEL_PATH = ARTIFACTS_DIR / "demand_model.joblib"
+
+# Weight of the CURRENT real kef vs the hour-of-week profile per horizon:
+# surge is sticky over 15 minutes, mostly pattern-driven two hours out.
+KEF_ANCHOR_WEIGHTS = {15: 0.85, 30: 0.7, 60: 0.5, 120: 0.3}
+# Sources of get_current_surge() rows that count as real radar data.
+_REAL_SOURCES = ("radar", "radar_stale", "radar_near")
 
 # Mirrors app/synth/generator.py's own formulas so forecasts stay consistent
 # with how the underlying synthetic (or later, real) trip economics behave.
@@ -60,6 +67,26 @@ def _wait_seconds_from_demand(demand_level: float) -> int:
     return int(max(30, 240 - demand_level * 150))
 
 
+def blend_surge(
+    model_surge: float, anchor: float | None, profile: float | None, horizon_minutes: int
+) -> tuple[float, bool]:
+    """Predicted surge grounded in real kef data when we have any.
+
+    anchor = the district's current real kef (radar cascade), profile = its
+    hour-of-week median at the target time. Short horizons trust the anchor,
+    long ones drift toward the profile. Returns (surge, is_real_blend); with
+    no real data at all the synthetic model value passes through unchanged.
+    """
+    if anchor is None and profile is None:
+        return model_surge, False
+    if anchor is None:
+        return profile, True
+    if profile is None:
+        return round(anchor, 2), True
+    w = KEF_ANCHOR_WEIGHTS.get(horizon_minutes, 0.5)
+    return round(w * anchor + (1 - w) * profile, 2), True
+
+
 def generate_forecasts(session: Session, horizons: list[int] = feat.HORIZONS_MINUTES) -> list[Forecast]:
     artifact = _load_artifact()
     model = artifact["model"]
@@ -89,6 +116,17 @@ def generate_forecasts(session: Session, horizons: list[int] = feat.HORIZONS_MIN
     t0 = feature_df["observed_at"].max()
     current = feature_df[feature_df["observed_at"] == t0].drop_duplicates(subset=["district_id"])
 
+    # Real-data grounding for the surge numbers: the current radar kef per
+    # district plus its hour-of-week profile (see kef_profile_service). The
+    # demand model itself still runs on demand_snapshots — only its surge
+    # output is re-anchored to reality.
+    anchors = {
+        row["district_id"]: row["surge"]
+        for row in surge_service.get_current_surge(session)
+        if row["source"] in _REAL_SOURCES
+    }
+    profiles = kef_profile_service.load_kef_profiles(session)
+
     forecasts: list[Forecast] = []
     for horizon in horizons:
         batch = current.copy()
@@ -96,11 +134,17 @@ def generate_forecasts(session: Session, horizons: list[int] = feat.HORIZONS_MIN
         preds = model.predict(batch[columns])
         target_time = t0 + timedelta(minutes=horizon)
         for district_id, pred in zip(batch["district_id"], preds):
+            district_id = int(district_id)
             demand_level = float(min(1.0, max(0.0, pred)))
-            surge = _surge_from_demand(demand_level)
+            surge, is_real = blend_surge(
+                _surge_from_demand(demand_level),
+                anchors.get(district_id),
+                kef_profile_service.profile_kef(profiles, district_id, target_time),
+                horizon,
+            )
             forecasts.append(
                 Forecast(
-                    district_id=int(district_id),
+                    district_id=district_id,
                     generated_at=t0,
                     horizon_minutes=horizon,
                     target_time=target_time,
@@ -108,7 +152,7 @@ def generate_forecasts(session: Session, horizons: list[int] = feat.HORIZONS_MIN
                     predicted_surge=surge,
                     predicted_avg_check=_avg_check_from_surge(surge),
                     predicted_wait_time_seconds=_wait_seconds_from_demand(demand_level),
-                    model_version=model_version,
+                    model_version=model_version + ("+kef" if is_real else ""),
                 )
             )
 
