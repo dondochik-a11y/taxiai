@@ -17,6 +17,8 @@
     </array>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>ANDROID_SERIAL</key>
+        <string>emulator-5554</string>
         <key>RADAR_API_URL</key>
         <string>https://93.189.228.203.sslip.io/api/v1/kef/ingest</string>
         <key>SSL_CERT_FILE</key>
