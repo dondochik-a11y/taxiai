@@ -17,9 +17,11 @@ export interface SurgeNow {
   district_id: number;
   surge: number;
   observed_at: string;
-  // "radar" = real kef from the Радар-кэфа app, "live" = derived from real
-  // Yandex Taxi prices, "synthetic" = generated feed
-  source: "radar" | "live" | "synthetic";
+  // "radar" = real kef from the Радар-кэфа app (fresh), "radar_stale" = same
+  // but 45–180 min old, "radar_near" = median of nearest radar-covered
+  // districts, "live" = derived from real Yandex Taxi prices,
+  // "synthetic" = generated feed (only when the radar is fully down)
+  source: "radar" | "radar_stale" | "radar_near" | "live" | "synthetic";
 }
 
 export interface Forecast {
