@@ -48,6 +48,31 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_recommendation(
+        self, user_id: str, lat: float, lng: float, horizon_minutes: int = 30
+    ) -> dict:
+        resp = await self._client.post(
+            f"/v1/recommendations/{user_id}",
+            json={"lat": lat, "lng": lng, "horizon_minutes": horizon_minutes},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_current_surge(self) -> list[dict]:
+        resp = await self._client.get("/v1/surge/current")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_finance_daily_summary(self, user_id: str) -> dict:
+        resp = await self._client.get("/v1/finance/daily-summary", params={"user_id": user_id})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_daily_plan(self) -> list[dict]:
+        resp = await self._client.get("/v1/forecasts/daily-plan")
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_link_code(self, user_id: str) -> dict:
         resp = await self._client.post("/v1/link/code", json={"user_id": user_id})
         resp.raise_for_status()
