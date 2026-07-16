@@ -52,6 +52,12 @@ TAP_POINTS = json.loads((HERE / "tap_points.json").read_text(encoding="utf-8"))
 KEF_RE = re.compile(r"^\d\.\d$")
 RATE_LIMIT_MARKS = ("лимит", "слишком частые")  # "Достигнут лимит…", "Слишком частые тапы"
 PROMO_MARK = "таксопарк"
+# A fullscreen subscription paywall ("Полный доступ … Пробный период") pops up
+# some seconds AFTER launch once the app has network; every tap then lands on
+# it and the whole sweep reads zero (seen 2026-07-17). Same package, so the
+# foreground guard can't catch it — detect by OCR text and tap its X away.
+PAYWALL_MARKS = ("полный доступ", "пробный период", "начать пробный")
+PAYWALL_CLOSE_X, PAYWALL_CLOSE_Y = 988, 194  # the ✕, top-right on the 1080x2400 screen
 
 
 # ---- adb helpers ------------------------------------------------------------
@@ -138,12 +144,12 @@ def make_batches(points: list[dict]) -> list[list[dict]]:
     return batches
 
 
-def read_bubbles(reader: easyocr.Reader, img: str) -> tuple[list[tuple], bool]:
-    """Return (bubbles, rate_limited). Each bubble is (kmin, kmax, cx, cy)."""
+def read_bubbles(reader: easyocr.Reader, img: str) -> tuple[list[tuple], bool, bool]:
+    """Return (bubbles, rate_limited, paywall). Each bubble is (kmin, kmax, cx, cy)."""
     results = reader.readtext(img)
-    rate_limited = any(
-        mark in t.lower() for _, t, _ in results for mark in RATE_LIMIT_MARKS
-    )
+    texts = [t.lower() for _, t, _ in results]
+    rate_limited = any(mark in t for t in texts for mark in RATE_LIMIT_MARKS)
+    paywall = any(mark in t for t in texts for mark in PAYWALL_MARKS)
 
     reads = []
     for box, text, conf in results:
@@ -169,7 +175,7 @@ def read_bubbles(reader: easyocr.Reader, img: str) -> tuple[list[tuple], bool]:
         gx = sum(g[1] for g in group) / len(group)
         gy = sum(g[2] for g in group) / len(group)
         bubbles.append((min(vals), max(vals), gx, gy))
-    return bubbles, rate_limited
+    return bubbles, rate_limited, paywall
 
 
 def pair(bubbles: list[tuple], points: list[dict]) -> list[dict]:
@@ -226,7 +232,15 @@ def main() -> int:
         ensure_radar_foreground()
         paced_tap(batch)
         screencap(shot)
-        bubbles, limited = read_bubbles(reader, str(shot))
+        bubbles, limited, paywall = read_bubbles(reader, str(shot))
+        if paywall:
+            # The wasted taps hit the overlay, not the map, so no markers were
+            # spent — safe to retap the same batch right away.
+            print("  paywall overlay detected; dismissing and retrying batch")
+            _adb_shell(f"input tap {PAYWALL_CLOSE_X} {PAYWALL_CLOSE_Y}; sleep 2")
+            paced_tap(batch)
+            screencap(shot)
+            bubbles, limited, _ = read_bubbles(reader, str(shot))
         readings = pair(bubbles, batch)
         all_readings.extend(readings)
         note = " [RATE-LIMITED]" if limited else ""
