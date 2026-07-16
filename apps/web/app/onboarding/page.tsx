@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, storeUserId } from "@/lib/apiClient";
+import { api, clearStoredUserId, storeUserId } from "@/lib/apiClient";
+import { useStoredUserId } from "@/lib/useStoredUserId";
 import { LinkTelegram } from "@/components/LinkTelegram";
 import type { District, User, UserCreate } from "@/lib/types";
 
@@ -20,32 +21,118 @@ const FUEL_TYPES = [
   { value: "electric", label: "Электро" },
 ];
 
+const DEFAULTS = {
+  city: "Moscow",
+  carMake: "Hyundai",
+  carModel: "Solaris",
+  tariffPlan: "economy",
+  fuelType: "petrol95",
+  fuelConsumption: 8.0,
+  fuelPrice: 60.0,
+  rentalCostPerDay: 2500,
+  homeDistrictId: "" as number | "",
+  scheduleStart: "08:00",
+  scheduleEnd: "20:00",
+};
+
 export default function OnboardingPage() {
   const router = useRouter();
+  const storedUserId = useStoredUserId();
   const [districts, setDistricts] = useState<District[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  // null — create mode; string — editing an existing profile
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // Set (asynchronously) once the prefill request settles; with no stored id
+  // there is nothing to fetch, so the render gate below skips this flag.
+  const [prefillSettled, setPrefillSettled] = useState(false);
 
-  const [city, setCity] = useState("Moscow");
-  const [carMake, setCarMake] = useState("Hyundai");
-  const [carModel, setCarModel] = useState("Solaris");
-  const [tariffPlan, setTariffPlan] = useState("economy");
-  const [fuelType, setFuelType] = useState("petrol95");
-  const [fuelConsumption, setFuelConsumption] = useState(8.0);
-  const [fuelPrice, setFuelPrice] = useState(60.0);
-  const [rentalCostPerDay, setRentalCostPerDay] = useState(2500);
-  const [homeDistrictId, setHomeDistrictId] = useState<number | "">("");
-  const [scheduleStart, setScheduleStart] = useState("08:00");
-  const [scheduleEnd, setScheduleEnd] = useState("20:00");
+  const [city, setCity] = useState(DEFAULTS.city);
+  const [carMake, setCarMake] = useState(DEFAULTS.carMake);
+  const [carModel, setCarModel] = useState(DEFAULTS.carModel);
+  const [tariffPlan, setTariffPlan] = useState(DEFAULTS.tariffPlan);
+  const [fuelType, setFuelType] = useState(DEFAULTS.fuelType);
+  const [fuelConsumption, setFuelConsumption] = useState(DEFAULTS.fuelConsumption);
+  const [fuelPrice, setFuelPrice] = useState(DEFAULTS.fuelPrice);
+  const [rentalCostPerDay, setRentalCostPerDay] = useState(DEFAULTS.rentalCostPerDay);
+  const [homeDistrictId, setHomeDistrictId] = useState<number | "">(DEFAULTS.homeDistrictId);
+  const [scheduleStart, setScheduleStart] = useState(DEFAULTS.scheduleStart);
+  const [scheduleEnd, setScheduleEnd] = useState(DEFAULTS.scheduleEnd);
 
   useEffect(() => {
     api.get<District[]>("/v1/districts").then(setDistricts).catch(() => setDistricts([]));
   }, []);
 
+  // With a stored id this page is the profile editor: load and prefill.
+  useEffect(() => {
+    if (typeof storedUserId !== "string") return; // hydrating, or no profile stored
+    let cancelled = false;
+    api
+      .get<User>(`/v1/users/${storedUserId}`)
+      .then((user) => {
+        if (cancelled) return;
+        setCity(user.city);
+        const p = user.driver_profile;
+        if (p) {
+          setCarMake(p.car_make ?? "");
+          setCarModel(p.car_model ?? "");
+          setTariffPlan(p.tariff_plan ?? DEFAULTS.tariffPlan);
+          setFuelType(p.fuel_type ?? DEFAULTS.fuelType);
+          setFuelConsumption(p.fuel_consumption_l_per_100km ?? DEFAULTS.fuelConsumption);
+          setFuelPrice(p.fuel_price_per_liter ?? DEFAULTS.fuelPrice);
+          setRentalCostPerDay(p.rental_cost_per_day ?? DEFAULTS.rentalCostPerDay);
+          setHomeDistrictId(p.home_district_id ?? "");
+          const firstWindow = Object.values(p.work_schedule ?? {}).find(
+            (day) => Array.isArray(day) && day.length > 0
+          )?.[0];
+          if (typeof firstWindow === "string" && /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(firstWindow)) {
+            const [start, end] = firstWindow.split("-");
+            setScheduleStart(start);
+            setScheduleEnd(end);
+          }
+        }
+        setEditingId(user.id);
+      })
+      .catch(() => {
+        // Stale id (user deleted / другая база) — fall back to create mode.
+        if (!cancelled) clearStoredUserId();
+      })
+      .finally(() => {
+        if (!cancelled) setPrefillSettled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [storedUserId]);
+
+  function resetForm() {
+    setCity(DEFAULTS.city);
+    setCarMake(DEFAULTS.carMake);
+    setCarModel(DEFAULTS.carModel);
+    setTariffPlan(DEFAULTS.tariffPlan);
+    setFuelType(DEFAULTS.fuelType);
+    setFuelConsumption(DEFAULTS.fuelConsumption);
+    setFuelPrice(DEFAULTS.fuelPrice);
+    setRentalCostPerDay(DEFAULTS.rentalCostPerDay);
+    setHomeDistrictId(DEFAULTS.homeDistrictId);
+    setScheduleStart(DEFAULTS.scheduleStart);
+    setScheduleEnd(DEFAULTS.scheduleEnd);
+  }
+
+  function handleLogout() {
+    clearStoredUserId();
+    setEditingId(null);
+    setSaved(false);
+    setError(null);
+    resetForm();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    setSaved(false);
     const payload: UserCreate = {
       city,
       driver_profile: {
@@ -67,9 +154,14 @@ export default function OnboardingPage() {
       },
     };
     try {
-      const user = await api.post<User>("/v1/users", payload);
-      storeUserId(user.id);
-      router.push("/");
+      if (editingId) {
+        await api.patch<User>(`/v1/users/${editingId}`, payload);
+        setSaved(true);
+      } else {
+        const user = await api.post<User>("/v1/users", payload);
+        storeUserId(user.id);
+        router.push("/");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось сохранить профиль");
     } finally {
@@ -77,11 +169,20 @@ export default function OnboardingPage() {
     }
   }
 
+  if (storedUserId === undefined) return null; // hydrating
+  if (typeof storedUserId === "string" && !prefillSettled) return null; // prefill in flight
+
+  const isEdit = editingId !== null;
+
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-lg md:text-xl font-semibold mb-1">Профиль водителя</h1>
+      <h1 className="text-lg md:text-xl font-semibold mb-1">
+        {isEdit ? "Профиль" : "Настройка"}
+      </h1>
       <p className="text-sm text-[var(--text-secondary)] mb-5">
-        Заполните один раз — дальше AI всё считает автоматически.
+        {isEdit
+          ? "Измените данные и сохраните — расчёты обновятся автоматически."
+          : "Заполните один раз — дальше AI всё считает автоматически."}
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Section title="🚗 Машина">
@@ -198,14 +299,29 @@ export default function OnboardingPage() {
         </Section>
 
         {error && <p className="text-sm" style={{ color: "var(--status-critical)" }}>{error}</p>}
+        {saved && (
+          <p className="text-sm" style={{ color: "var(--status-good)" }}>
+            Профиль сохранён ✓
+          </p>
+        )}
         <button type="submit" disabled={submitting} className="btn-primary">
-          {submitting ? "Сохранение..." : "Начать работу"}
+          {submitting ? "Сохранение..." : isEdit ? "Сохранить изменения" : "Начать работу"}
         </button>
       </form>
 
       <div className="mt-4">
         <LinkTelegram />
       </div>
+
+      {isEdit && (
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="mt-6 w-full text-center text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors py-2"
+        >
+          Сменить аккаунт
+        </button>
+      )}
     </div>
   );
 }
