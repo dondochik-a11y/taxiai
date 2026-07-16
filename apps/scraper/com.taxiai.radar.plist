@@ -28,8 +28,11 @@
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
     </dict>
+    <!-- 900s = 15 min. A sweep takes ~13 min, so sweeps run near back-to-back;
+         launchd never runs two copies at once (the next starts after the
+         current sweep exits). Was 1800; tightened for denser kef coverage. -->
     <key>StartInterval</key>
-    <integer>1800</integer>
+    <integer>900</integer>
     <key>StandardOutPath</key>
     <string>/Users/tim/Documents/work/taxi/apps/scraper/radar.log</string>
     <key>StandardErrorPath</key>
