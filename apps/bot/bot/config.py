@@ -7,6 +7,8 @@ class BotSettings(BaseSettings):
     telegram_bot_token: str = ""
     api_base_url: str = "http://localhost:8000"
     poll_interval_seconds: int = 90
+    # FSM storage backend; empty → in-memory fallback (state lost on restart).
+    redis_url: str = ""
 
 
 settings = BotSettings()
