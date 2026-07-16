@@ -14,14 +14,19 @@ from sqlalchemy.orm import Session
 
 from app.models.district import District
 from app.models.enums import NotificationType
-from app.models.forecast import Forecast
 from app.models.notification import TelegramNotificationLog
 from app.models.trip import Trip
 from app.models.user import DriverProfile, User
 from app.services.daily_plan_service import get_daily_plan
 from app.services.finance_service import compute_daily_summary
+from app.services.surge_service import get_current_surge
 
-HIGH_DEMAND_THRESHOLD = 0.65
+# Alert the driver to go out only on a REAL radar kef at least this high — the
+# whole point is real data, so a synthetic number never triggers this.
+PRESHIFT_KEF_THRESHOLD = 1.5
+# Sources from surge_service that carry a real radar reading (see the cascade
+# in app/services/surge_service.py); live/synthetic are never alert-worthy here.
+_PRESHIFT_REAL_SOURCES = frozenset({"radar", "radar_stale", "radar_near"})
 _WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
@@ -68,6 +73,7 @@ def _morning_plan_notification(session: Session, user: User, profile: DriverProf
         "type": NotificationType.MORNING_PLAN.value,
         "user_id": str(user.id),
         "telegram_id": user.telegram_id,
+        "district_id": None,
         "text": f"Сегодня рекомендуем работать:\n{windows_text}",
     }
 
@@ -75,26 +81,28 @@ def _morning_plan_notification(session: Session, user: User, profile: DriverProf
 def _preshift_alert_notification(session: Session, user: User, profile: DriverProfile, now: datetime, today: date) -> dict | None:
     if profile.home_district_id is None or _already_sent(session, user.id, NotificationType.PRESHIFT_ALERT, today):
         return None
-    forecast = (
-        session.execute(
-            select(Forecast)
-            .where(Forecast.district_id == profile.home_district_id, Forecast.horizon_minutes == 30)
-            .order_by(Forecast.generated_at.desc())
-        )
-        .scalars()
-        .first()
+    # Alert on the real radar kef for the home district, never on synthetic.
+    home_row = next(
+        (r for r in get_current_surge(session) if r["district_id"] == profile.home_district_id),
+        None,
     )
-    if forecast is None or float(forecast.predicted_demand_level) < HIGH_DEMAND_THRESHOLD:
+    if (
+        home_row is None
+        or home_row["source"] not in _PRESHIFT_REAL_SOURCES
+        or float(home_row["surge"]) < PRESHIFT_KEF_THRESHOLD
+    ):
         return None
     district = session.get(District, profile.home_district_id)
+    surge = float(home_row["surge"])
     _mark_sent(session, user.id, NotificationType.PRESHIFT_ALERT, today)
     return {
         "type": NotificationType.PRESHIFT_ALERT.value,
         "user_id": str(user.id),
         "telegram_id": user.telegram_id,
+        "district_id": profile.home_district_id,
         "text": (
-            f"Через {forecast.horizon_minutes} минут ожидается высокий спрос "
-            f"в районе «{district.name}» (вероятность {float(forecast.predicted_demand_level) * 100:.0f}%)."
+            f"Сейчас в районе «{district.name}» высокий кэф — {surge:.1f}. "
+            f"Хорошее время выйти на смену."
         ),
     }
 
@@ -127,7 +135,8 @@ def _postshift_summary_notification(session: Session, user: User, profile: Drive
     ranked = sorted(
         by_district.items(), key=lambda kv: sum(float(t.price) for t in kv[1]) / len(kv[1]), reverse=True
     )
-    best_name = session.get(District, ranked[0][0]).name if ranked else "—"
+    best_district_id = ranked[0][0] if ranked else None
+    best_name = session.get(District, best_district_id).name if best_district_id is not None else "—"
     worst_name = session.get(District, ranked[-1][0]).name if ranked else "—"
 
     _mark_sent(session, user.id, NotificationType.POSTSHIFT_SUMMARY, today)
@@ -135,6 +144,7 @@ def _postshift_summary_notification(session: Session, user: User, profile: Drive
         "type": NotificationType.POSTSHIFT_SUMMARY.value,
         "user_id": str(user.id),
         "telegram_id": user.telegram_id,
+        "district_id": best_district_id,
         "text": (
             f"Сегодня\nДоход: {summary.gross_income:.0f}\nЧистыми: {summary.net_income:.0f}\n"
             f"Лучший район: {best_name}\nХудший район: {worst_name}"
