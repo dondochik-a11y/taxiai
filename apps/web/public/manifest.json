@@ -1,11 +1,29 @@
 {
+  "id": "/",
   "name": "TaxiAI",
   "short_name": "TaxiAI",
   "description": "AI-копилот для водителя такси",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0d0d0d",
   "theme_color": "#0d0d0d",
+  "categories": ["navigation", "productivity", "travel"],
+  "shortcuts": [
+    {
+      "name": "Куда ехать?",
+      "short_name": "Куда ехать?",
+      "description": "Рекомендация лучшего района прямо сейчас",
+      "url": "/?rec=1",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
   "icons": [
     {
       "src": "/icon-192.png",

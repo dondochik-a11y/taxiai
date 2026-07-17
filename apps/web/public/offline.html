@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <title>Нет сети — TaxiAI</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background: #0d0d0d;
+        color: #fff;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(env(safe-area-inset-top) + 1.5rem) 1.5rem
+          calc(env(safe-area-inset-bottom) + 1.5rem);
+        text-align: center;
+      }
+      .wrap {
+        max-width: 22rem;
+      }
+      .mark {
+        width: 3.5rem;
+        height: 3.5rem;
+        margin: 0 auto 1.25rem;
+        border-radius: 1rem;
+        background: #3987e5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 0.5rem;
+        letter-spacing: -0.01em;
+      }
+      p {
+        color: #c3c2b7;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin: 0 0 1.5rem;
+      }
+      button {
+        appearance: none;
+        border: none;
+        min-height: 2.75rem;
+        padding: 0.7rem 1.5rem;
+        border-radius: 0.75rem;
+        background: #0ca30c;
+        color: #000;
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      button:active {
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="mark" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          width="26"
+          height="26"
+          fill="none"
+          stroke="#fff"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M5 11.5 6.4 7A2 2 0 0 1 8.3 5.6h7.4A2 2 0 0 1 17.6 7L19 11.5" />
+          <path d="M3.5 11.5h17v4.4a1 1 0 0 1-1 1h-1.3a1 1 0 0 1-1-1v-.9H6.8v.9a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1v-4.4Z" />
+        </svg>
+      </div>
+      <h1>Нет сети</h1>
+      <p>Показаны последние загруженные данные. Проверьте подключение — карта и прогнозы обновятся автоматически.</p>
+      <button type="button" onclick="location.reload()">Повторить</button>
+    </div>
+  </body>
+</html>

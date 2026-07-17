@@ -52,18 +52,31 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <header className="sticky top-0 z-40 border-b border-white/10 bg-[rgba(13,13,13,0.92)] backdrop-blur">
+        <header className="sticky top-0 z-40 border-b border-white/10 bg-[rgba(13,13,13,0.92)] backdrop-blur pt-[env(safe-area-inset-top)]">
           <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-              <span className="w-7 h-7 rounded-lg bg-[var(--series-1)] flex items-center justify-center text-sm">
-                🚕
+              <span className="w-7 h-7 rounded-lg bg-[var(--series-1)] flex items-center justify-center text-white">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 11.5 6.4 7A2 2 0 0 1 8.3 5.6h7.4A2 2 0 0 1 17.6 7L19 11.5" />
+                  <path d="M3.5 11.5h17v4.4a1 1 0 0 1-1 1h-1.3a1 1 0 0 1-1-1v-.9H6.8v.9a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1v-4.4Z" />
+                  <path d="M6.7 14h.01M17.3 14h.01" />
+                </svg>
               </span>
               TaxiAI
             </Link>
             <DesktopNav />
           </div>
         </header>
-        <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-4 md:py-6 pb-24 md:pb-6">
+        <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-4 md:py-6 pb-[calc(6.5rem+env(safe-area-inset-bottom))] md:pb-6">
           {children}
         </main>
         <MobileTabBar />

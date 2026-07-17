@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { District, Forecast, SurgeNow } from "@/lib/types";
@@ -30,6 +30,7 @@ const SURGE_MAX = 2.8;
 const SHAPE_SOURCE = "districts";
 const FILL_LAYER = "district-fills";
 const OUTLINE_LAYER = "district-outlines";
+const STALE_LAYER = "district-stale-outline";
 const HOVER_LAYER = "district-hover-outline";
 
 export type MapMode = "demand" | "surge";
@@ -63,10 +64,23 @@ const FILL_OPACITY: Record<Freshness, number> = {
 // for the low-contrast light ramp steps — so markers fade much less than fills.
 const MARKER_OPACITY: Record<Freshness, string> = {
   fresh: "1",
-  degraded: "0.75",
+  degraded: "0.8",
   synthetic: "0.85",
 };
 const DEMAND_FILL_OPACITY = 0.55;
+
+// Yandex Maps routing deep link (from my location → centroid, driving).
+function yandexRouteUrl(lat: number, lng: number): string {
+  return `https://yandex.ru/maps/?rtext=~${lat},${lng}&rtt=auto`;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 function stepIndex(value: number, steps: string[]): number {
   return Math.min(steps.length - 1, Math.max(0, Math.round(value * (steps.length - 1))));
@@ -78,8 +92,9 @@ function colorFor(value: number): string {
 
 function surgeColorFor(norm: number): { bg: string; ink: string } {
   const idx = stepIndex(norm, SURGE_STEPS);
-  // Two lightest steps need dark ink; the rest take white.
-  return { bg: SURGE_STEPS[idx], ink: idx < 2 ? "#1f1410" : "#ffffff" };
+  // The three lightest steps need dark ink: white on the mid step #ef3b2c is
+  // only 3.94:1 and fails AA, so the dark-ink threshold is idx < 3.
+  return { bg: SURGE_STEPS[idx], ink: idx < 3 ? "#1f1410" : "#ffffff" };
 }
 
 /** Mix a hex color toward its own gray, keeping luminance (synthetic tier). */
@@ -111,6 +126,78 @@ interface HoverInfo {
   surgeNow: SurgeNow | undefined;
 }
 
+/** A district resolved to everything the map needs to paint it. */
+interface StyledDistrict {
+  d: District;
+  demand: number;
+  surge: number;
+  surgeNorm: number;
+  freshness: Freshness;
+  fill: string;
+  ink: string;
+}
+
+/** Visual signature of a marker — markers only re-render when this changes, so
+ * the 5-min surge poll updates a handful of chips instead of rebuilding all. */
+function markerSignature(s: StyledDistrict, mode: MapMode, hasPolygon: boolean): string {
+  const v = mode === "surge" ? s.surge.toFixed(2) : s.demand.toFixed(3);
+  return `${mode}|${hasPolygon ? 1 : 0}|${s.fill}|${s.ink}|${s.freshness}|${v}`;
+}
+
+function styleMarkerEl(
+  el: HTMLDivElement,
+  s: StyledDistrict,
+  mode: MapMode,
+  hasPolygon: boolean
+): void {
+  el.style.cursor = "pointer";
+  el.style.display = "flex";
+  el.style.alignItems = "center";
+  el.style.justifyContent = "center";
+  el.style.boxSizing = "border-box";
+  if (mode === "surge") {
+    const stale = s.freshness !== "fresh";
+    el.style.background = s.fill;
+    el.style.color = s.ink;
+    // Non-opacity freshness cue: a dashed border + ⚠ glyph flag "not real-time"
+    // for users who can't perceive the opacity fade.
+    el.style.border = stale ? "1.5px dashed rgba(20,20,25,0.7)" : "1px solid rgba(0,0,0,0.35)";
+    el.style.opacity = MARKER_OPACITY[s.freshness];
+    el.style.font = "600 12px/1 system-ui, sans-serif";
+    const glyph = s.freshness === "synthetic" ? "⚠ " : "";
+    el.textContent = `${glyph}${s.surge.toFixed(1)}`;
+    if (hasPolygon) {
+      el.style.borderRadius = "999px";
+      el.style.padding = "3px 7px";
+      el.style.width = "";
+      el.style.height = "";
+    } else {
+      const size = 28 + s.surgeNorm * 16;
+      el.style.borderRadius = "50%";
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.padding = "";
+    }
+    el.setAttribute(
+      "aria-label",
+      `${s.d.name}: кэф ×${s.surge.toFixed(1)}${stale ? ", данные не в реальном времени" : ""}`
+    );
+  } else {
+    const size = 16 + s.demand * 20;
+    el.style.borderRadius = "50%";
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.background = s.fill;
+    el.style.color = "";
+    el.style.border = "2px solid rgba(255,255,255,0.4)";
+    el.style.opacity = "1";
+    el.style.font = "";
+    el.style.padding = "";
+    el.textContent = "";
+    el.setAttribute("aria-label", `${s.d.name}: спрос ${(s.demand * 100).toFixed(0)}%`);
+  }
+}
+
 interface MoscowMapProps {
   districts: District[];
   forecastByDistrict: Map<number, Forecast>;
@@ -125,7 +212,7 @@ interface MoscowMapProps {
   focusDistrictId?: number;
 }
 
-export function MoscowMap({
+function MoscowMapImpl({
   districts,
   forecastByDistrict,
   surgeNowByDistrict,
@@ -135,9 +222,15 @@ export function MoscowMap({
 }: MoscowMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  // Latest hover payloads + select callback, read by the polygon-layer event
-  // handlers that are bound exactly once (so listeners never stack up).
+  // Markers are keyed by district id + carry their last visual signature, so a
+  // data refresh diffs and updates only changed chips (no full teardown).
+  const markersRef = useRef<Map<number, { marker: maplibregl.Marker; el: HTMLDivElement }>>(
+    new Map()
+  );
+  const markerSigRef = useRef<Map<number, string>>(new Map());
+  // Latest hover payloads + select callback, read by the polygon-layer and
+  // marker event handlers that are bound exactly once (so listeners never stack
+  // up and never capture stale forecast/surge data).
   const hoverInfoRef = useRef<Map<number, HoverInfo>>(new Map());
   const onSelectRef = useRef<MoscowMapProps["onSelectDistrict"]>(onSelectDistrict);
   onSelectRef.current = onSelectDistrict;
@@ -181,12 +274,14 @@ export function MoscowMap({
       // phone-width maps; OSM attribution stays one tap away.
       attributionControl: { compact: true },
     });
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    // Zoom control lives top-right (the info panel is bottom on mobile, so it is
+    // never buried); enlarged to a ≥44px touch target via the scoped <style>.
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.on("load", () => setMapReady(true));
     mapRef.current = map;
   }, []);
 
-  // Polygon fills + fallback circle markers, rebuilt whenever data changes.
+  // Polygon fills + fallback circle markers, refreshed whenever data changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -207,8 +302,8 @@ export function MoscowMap({
     );
 
     const styled = districts.map((d) => {
-      const forecast = forecastByDistrict.get(d.id);
       const surgeNow = surgeNowByDistrict?.get(d.id);
+      const forecast = forecastByDistrict.get(d.id);
       const demand = forecast?.predicted_demand_level ?? 0;
       // The radar shows the CURRENT кэф when the live feed has it; the model
       // forecast is the fallback (and stays available in the hover panel).
@@ -229,7 +324,8 @@ export function MoscowMap({
         fill = colorFor(demand);
         fillOpacity = DEMAND_FILL_OPACITY;
       }
-      return { d, forecast, surgeNow, demand, surge, surgeNorm, freshness, shape, fill, fillOpacity, ink };
+      const s: StyledDistrict = { d, demand, surge, surgeNorm, freshness, fill, ink };
+      return { s, shape, fillOpacity };
     });
 
     // --- polygon layers ---------------------------------------------------
@@ -237,15 +333,17 @@ export function MoscowMap({
       const fc = {
         type: "FeatureCollection" as const,
         features: styled
-          .filter((s) => s.shape)
-          .map((s) => ({
+          .filter((x) => x.shape)
+          .map((x) => ({
             type: "Feature" as const,
             properties: {
-              district_id: s.d.id,
-              fill: s.fill,
-              fill_opacity: s.fillOpacity,
+              district_id: x.s.d.id,
+              fill: x.s.fill,
+              fill_opacity: x.fillOpacity,
+              // Categorical (non-opacity) freshness flag → dashed outline.
+              stale: mode === "surge" && x.s.freshness !== "fresh",
             },
-            geometry: s.shape!.geometry,
+            geometry: x.shape!.geometry,
           })),
       };
       const source = map.getSource(SHAPE_SOURCE) as maplibregl.GeoJSONSource | undefined;
@@ -269,6 +367,19 @@ export function MoscowMap({
           paint: {
             "line-color": "rgba(20,20,25,0.45)",
             "line-width": 0.8,
+          },
+        });
+        // Dashed amber outline for "not real-time" districts — a categorical
+        // cue that survives colour-blindness and the opacity fade.
+        map.addLayer({
+          id: STALE_LAYER,
+          type: "line",
+          source: SHAPE_SOURCE,
+          filter: ["==", ["get", "stale"], true],
+          paint: {
+            "line-color": "rgba(250,178,25,0.95)",
+            "line-width": 1.6,
+            "line-dasharray": [2, 2],
           },
         });
         map.addLayer({
@@ -306,63 +417,59 @@ export function MoscowMap({
       }
     }
 
-    // --- markers: circles for polygon-less districts (rail/airport hubs,
-    // or everything while the asset loads); compact кэф label chips at the
-    // centroids of polygon districts in surge mode --------------------------
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
-
-    styled.forEach((s) => {
-      const { d, forecast, surgeNow } = s;
-      const hasPolygon = Boolean(s.shape) && mapReady;
+    // --- markers: circles for polygon-less districts (rail/airport hubs, or
+    // everything while the asset loads); compact кэф label chips at the
+    // centroids of polygon districts in surge mode. Diffed by district id so a
+    // 5-min poll touches only the chips whose value changed. ------------------
+    const needed = new Map<number, { s: StyledDistrict; hasPolygon: boolean }>();
+    styled.forEach((x) => {
+      const hasPolygon = Boolean(x.shape) && mapReady;
       if (hasPolygon && mode !== "surge") return; // the fill carries demand
+      needed.set(x.s.d.id, { s: x.s, hasPolygon });
+    });
 
-      const el = document.createElement("div");
-      el.style.cursor = "pointer";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      if (mode === "surge") {
-        el.style.background = s.fill;
-        el.style.color = s.ink;
-        el.style.border = "1px solid rgba(0,0,0,0.35)";
-        el.style.opacity = MARKER_OPACITY[s.freshness];
-        el.style.font = "600 10px/1 system-ui, sans-serif";
-        el.textContent = s.surge.toFixed(1);
-        if (hasPolygon) {
-          // Label chip over the polygon — the number is the payload, the
-          // fill already encodes intensity.
-          el.style.borderRadius = "999px";
-          el.style.padding = "3px 6px";
-        } else {
-          const size = 22 + s.surgeNorm * 14;
-          el.style.borderRadius = "50%";
-          el.style.width = `${size}px`;
-          el.style.height = `${size}px`;
-        }
-      } else {
-        const size = 16 + s.demand * 20;
-        el.style.borderRadius = "50%";
-        el.style.width = `${size}px`;
-        el.style.height = `${size}px`;
-        el.style.background = s.fill;
-        el.style.border = "2px solid rgba(255,255,255,0.4)";
+    // Remove markers that no longer apply (mode switch, district gone).
+    for (const [id, entry] of markersRef.current) {
+      if (!needed.has(id)) {
+        entry.marker.remove();
+        markersRef.current.delete(id);
+        markerSigRef.current.delete(id);
       }
+    }
 
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([d.centroid_lng, d.centroid_lat])
-        .addTo(map);
-
-      el.addEventListener("mouseenter", () => setHovered({ district: d, forecast, surgeNow }));
-      el.addEventListener("mouseleave", () => setHovered(null));
-      el.addEventListener("click", (ev) => {
-        // Don't let the tap fall through to the polygon underneath.
+    needed.forEach(({ s, hasPolygon }, id) => {
+      const sig = markerSignature(s, mode, hasPolygon);
+      const existing = markersRef.current.get(id);
+      if (existing) {
+        if (markerSigRef.current.get(id) !== sig) {
+          styleMarkerEl(existing.el, s, mode, hasPolygon);
+          markerSigRef.current.set(id, sig);
+        }
+        return;
+      }
+      const el = document.createElement("div");
+      styleMarkerEl(el, s, mode, hasPolygon);
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
+      const activate = (ev: Event) => {
         ev.stopPropagation();
-        setHovered({ district: d, forecast, surgeNow });
-        onSelectRef.current?.(d.id);
+        setHovered(hoverInfoRef.current.get(id) ?? null);
+        onSelectRef.current?.(id);
+      };
+      el.addEventListener("mouseenter", () => setHovered(hoverInfoRef.current.get(id) ?? null));
+      el.addEventListener("mouseleave", () => setHovered(null));
+      el.addEventListener("click", activate);
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          activate(ev);
+        }
       });
-
-      markersRef.current.push(marker);
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([s.d.centroid_lng, s.d.centroid_lat])
+        .addTo(map);
+      markersRef.current.set(id, { marker, el });
+      markerSigRef.current.set(id, sig);
     });
   }, [districts, forecastByDistrict, surgeNowByDistrict, mode, shapes, mapReady]);
 
@@ -385,7 +492,9 @@ export function MoscowMap({
     const d = districts.find((x) => x.id === focusDistrictId);
     if (!d) return;
     focusedIdRef.current = focusDistrictId;
-    map.flyTo({ center: [d.centroid_lng, d.centroid_lat], zoom: 11.5, duration: 800 });
+    const dest = { center: [d.centroid_lng, d.centroid_lat] as [number, number], zoom: 11.5 };
+    if (prefersReducedMotion()) map.jumpTo(dest);
+    else map.flyTo({ ...dest, duration: 800 });
     setHovered({
       district: d,
       forecast: forecastByDistrict.get(d.id),
@@ -393,13 +502,70 @@ export function MoscowMap({
     });
   }, [focusDistrictId, mapReady, districts, forecastByDistrict, surgeNowByDistrict]);
 
+  // Shared select+recenter used by the keyboard/SR district list.
+  const selectDistrict = (id: number) => {
+    const d = districts.find((x) => x.id === id);
+    if (!d) return;
+    const map = mapRef.current;
+    if (map && mapReady) {
+      const dest = { center: [d.centroid_lng, d.centroid_lat] as [number, number], zoom: 11.5 };
+      if (prefersReducedMotion()) map.jumpTo(dest);
+      else map.flyTo({ ...dest, duration: 800 });
+    }
+    setHovered(
+      hoverInfoRef.current.get(id) ?? {
+        district: d,
+        forecast: forecastByDistrict.get(id),
+        surgeNow: surgeNowByDistrict?.get(id),
+      }
+    );
+    onSelectRef.current?.(id);
+  };
+
   const legendSteps = mode === "surge" ? SURGE_STEPS : SEQUENTIAL_STEPS;
   const hoveredAgo = hovered?.surgeNow ? agoLabel(hovered.surgeNow.observed_at) : null;
 
   return (
-    <div className="relative rounded-2xl overflow-hidden border border-white/10">
+    <div
+      className="taxi-map relative rounded-2xl overflow-hidden border border-white/10"
+      role="region"
+      aria-label="Карта спроса по районам Москвы"
+    >
+      {/* Scoped: give the MapLibre zoom control a ≥44px touch target. */}
+      <style>{`
+        .taxi-map .maplibregl-ctrl-group button {
+          width: 44px;
+          height: 44px;
+        }
+        .taxi-map .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+          transform: scale(1.25);
+        }
+      `}</style>
       <div ref={containerRef} className="w-full h-[56dvh] md:h-[520px]" />
-      <div className="absolute bottom-12 md:bottom-3 left-3 bg-black/70 border border-white/10 rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)]">
+
+      {/* Keyboard/screen-reader access to the data the mouse-only map hides. */}
+      <ul className="sr-only">
+        {districts.map((d) => {
+          const sn = surgeNowByDistrict?.get(d.id);
+          const fc = forecastByDistrict.get(d.id);
+          const parts = [d.name];
+          if (sn) parts.push(`кэф ×${sn.surge.toFixed(1)} (${SOURCE_LABELS[sn.source]})`);
+          if (fc) parts.push(`спрос ${(fc.predicted_demand_level * 100).toFixed(0)}%`);
+          return (
+            <li key={d.id}>
+              <button type="button" onClick={() => selectDistrict(d.id)}>
+                {parts.join(", ")}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Legend: top-left on mobile (info panel owns the bottom), bottom-left on desktop. */}
+      <div
+        className="absolute top-3 left-3 md:top-auto md:bottom-3 backdrop-blur border border-white/10 rounded-lg px-3 py-2 text-xs text-[var(--text-secondary)]"
+        style={{ background: "var(--overlay)" }}
+      >
         <div className="flex items-center gap-1">
           <span>{mode === "surge" ? "кэф: ×1.0" : "спрос: меньше"}</span>
           {legendSteps.map((c) => (
@@ -408,11 +574,23 @@ export function MoscowMap({
           <span>{mode === "surge" ? "×2.8" : "больше"}</span>
         </div>
         {mode === "surge" && (
-          <div className="text-[var(--text-muted)] mt-1">бледные районы — данные не в реальном времени</div>
+          <div className="text-[var(--text-muted)] mt-1 flex items-center gap-1.5">
+            <span
+              className="inline-block w-4 h-0 align-middle"
+              style={{ borderTop: "1.5px dashed rgba(250,178,25,0.95)" }}
+              aria-hidden="true"
+            />
+            <span>⚠ / пунктир — данные не в реальном времени</span>
+          </div>
         )}
       </div>
+
+      {/* Info panel: bottom (thumb zone) on mobile, top-left on desktop. */}
       {hovered && (
-        <div className="absolute top-3 left-3 right-3 md:right-auto bg-black/85 backdrop-blur border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] md:max-w-xs">
+        <div
+          className="absolute bottom-3 left-3 right-3 md:right-auto md:bottom-auto md:top-3 backdrop-blur border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] md:max-w-xs"
+          style={{ background: "var(--overlay)" }}
+        >
           <button
             className="absolute top-1.5 right-2.5 text-[var(--text-muted)] md:hidden"
             onClick={() => setHovered(null)}
@@ -436,13 +614,25 @@ export function MoscowMap({
               {(hovered.forecast.predicted_demand_level * 100).toFixed(0)}% · чек ≈
               {hovered.forecast.predicted_avg_check.toFixed(0)} ₽ · ожидание ~
               {Math.round(hovered.forecast.predicted_wait_time_seconds / 60)} мин
-              <div className="text-[var(--text-muted)]">прогноз через {hovered.forecast.horizon_minutes} мин</div>
+              <div className="text-[var(--text-muted)]">
+                прогноз через {hovered.forecast.horizon_minutes} мин
+              </div>
             </div>
           ) : (
             !hovered.surgeNow && <div className="text-[var(--text-muted)]">нет прогноза</div>
           )}
+          <a
+            href={yandexRouteUrl(hovered.district.centroid_lat, hovered.district.centroid_lng)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="chip mt-2"
+          >
+            Проехать сюда
+          </a>
         </div>
       )}
     </div>
   );
 }
+
+export const MoscowMap = memo(MoscowMapImpl);
