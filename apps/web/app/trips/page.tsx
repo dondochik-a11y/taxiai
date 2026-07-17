@@ -12,6 +12,7 @@ export default function TripsPage() {
   const [districts, setDistricts] = useState<District[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<Record<string, AiTripAnalysis | "loading" | "none">>({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.get<District[]>("/v1/districts").then(setDistricts).catch(() => setDistricts([]));
@@ -19,7 +20,12 @@ export default function TripsPage() {
 
   useEffect(() => {
     if (!userId) return;
-    api.get<Trip[]>(`/v1/trips?user_id=${userId}&limit=50`).then(setTrips).catch(() => setTrips([]));
+    setLoading(true);
+    api
+      .get<Trip[]>(`/v1/trips?user_id=${userId}&limit=50`)
+      .then(setTrips)
+      .catch(() => setTrips([]))
+      .finally(() => setLoading(false));
   }, [userId]);
 
   const districtName = (id: number) => districts.find((d) => d.id === id)?.name ?? `#${id}`;
@@ -56,9 +62,13 @@ export default function TripsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <h1 className="text-lg md:text-xl font-semibold mb-1">Поездки</h1>
-      {trips.length === 0 && (
+    <div className="max-w-2xl mx-auto flex flex-col gap-4">
+      <h1 className="text-h1">Поездки</h1>
+      {loading &&
+        Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="skeleton h-[4.5rem] rounded-2xl" />
+        ))}
+      {!loading && trips.length === 0 && (
         <div className="card p-8 flex flex-col items-center gap-2 text-center">
           <span className="text-3xl">🛣️</span>
           <p className="text-sm text-[var(--text-secondary)]">Поездок пока нет.</p>
@@ -67,7 +77,8 @@ export default function TripsPage() {
           </p>
         </div>
       )}
-      {trips.map((trip) => (
+      {!loading &&
+        trips.map((trip) => (
         <div key={trip.id} className="card overflow-hidden">
           <button
             onClick={() => toggleExpand(trip)}

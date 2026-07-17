@@ -176,7 +176,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-lg md:text-xl font-semibold mb-1">
+      <h1 className="text-h1 mb-1">
         {isEdit ? "Профиль" : "Настройка"}
       </h1>
       <p className="text-sm text-[var(--text-secondary)] mb-5">
@@ -185,7 +185,7 @@ export default function OnboardingPage() {
           : "Заполните один раз — дальше AI всё считает автоматически."}
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Section title="🚗 Машина">
+        <Section title="Машина" icon={<CarIcon className="w-4 h-4" />}>
           <Field label="Город">
             <input className="input" value={city} onChange={(e) => setCity(e.target.value)} />
           </Field>
@@ -214,7 +214,7 @@ export default function OnboardingPage() {
           </Field>
         </Section>
 
-        <Section title="⛽ Экономика">
+        <Section title="Экономика" icon={<FuelIcon className="w-4 h-4" />}>
           <Field label="Топливо">
             <div className="flex gap-2 flex-wrap">
               {FUEL_TYPES.map((f) => (
@@ -263,7 +263,7 @@ export default function OnboardingPage() {
           </Field>
         </Section>
 
-        <Section title="🕐 Смена">
+        <Section title="Смена" icon={<ClockIcon className="w-4 h-4" />}>
           <Field label="Домашний район">
             <select
               className="input"
@@ -298,12 +298,8 @@ export default function OnboardingPage() {
           </div>
         </Section>
 
-        {error && <p className="text-sm" style={{ color: "var(--status-critical)" }}>{error}</p>}
-        {saved && (
-          <p className="text-sm" style={{ color: "var(--status-good)" }}>
-            Профиль сохранён ✓
-          </p>
-        )}
+        {error && <p className="text-sm text-danger">{error}</p>}
+        {saved && <p className="text-sm text-success">Профиль сохранён ✓</p>}
         <button type="submit" disabled={submitting} className="btn-primary">
           {submitting ? "Сохранение..." : isEdit ? "Сохранить изменения" : "Начать работу"}
         </button>
@@ -326,12 +322,59 @@ export default function OnboardingPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="card p-4 flex flex-col gap-3">
-      <h2 className="text-sm font-semibold text-[var(--text-secondary)]">{title}</h2>
+      <h2 className="text-sm font-semibold text-[var(--text-secondary)] flex items-center gap-2">
+        {icon && (
+          <span className="text-[var(--series-1)]" aria-hidden="true">
+            {icon}
+          </span>
+        )}
+        {title}
+      </h2>
       {children}
     </div>
+  );
+}
+
+// Line icons matching the nav's stroke style (replaces the emoji section
+// markers for a consistent visual language).
+function CarIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" />
+      <path d="M3 11h18v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H6v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5Z" />
+      <path d="M7 14h.01M17 14h.01" />
+    </svg>
+  );
+}
+
+function FuelIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20V6a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v14" />
+      <path d="M3 20h11" />
+      <path d="M13 9h3l2.5 2.5V17a1.5 1.5 0 0 0 3 0V8l-3-3" />
+      <path d="M6.5 8h4" />
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </svg>
   );
 }
 

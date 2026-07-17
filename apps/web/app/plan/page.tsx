@@ -63,20 +63,24 @@ export default function PlanPage() {
   return (
     <div className="max-w-lg mx-auto flex flex-col gap-4">
       <div>
-        <h1 className="text-lg md:text-xl font-semibold mb-1">План на день</h1>
+        <h1 className="text-h1 mb-1">План на день</h1>
         <p className="text-sm text-[var(--text-secondary)]">
           Лучшие часы для выхода на линию — {todayLabel}.
         </p>
       </div>
 
       {error && (
-        <p className="text-sm" style={{ color: "var(--status-critical)" }}>
+        <p className="text-sm text-danger">
           Не удалось загрузить план. Проверьте соединение и обновите страницу.
         </p>
       )}
 
       {!error && windows === null && (
-        <div className="card p-4 text-sm text-[var(--text-secondary)]">Загрузка...</div>
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="skeleton h-[4.75rem] rounded-2xl" />
+          ))}
+        </div>
       )}
 
       {windows !== null && windows.length === 0 && (
@@ -88,21 +92,24 @@ export default function PlanPage() {
 
       {windows !== null && windows.length > 0 && (
         <div className="flex flex-col gap-3">
-          {windows.map((w, i) => (
+          {windows.map((w) => (
             <div key={`${w.start_hour}-${w.end_hour}`} className="card p-4 flex items-center gap-4">
               <span className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-[var(--series-1)] shrink-0">
-                <ClockIcon className="w-5 h-5" />
+                <ClockIcon className="w-5 h-5" aria-hidden="true" />
               </span>
               <div className="flex-1 min-w-0">
-                <div className="text-lg font-semibold tabular">
+                <div className="text-lg font-semibold figure">
                   {formatHour(w.start_hour)}–{formatHour(w.end_hour)}
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">
                   {timeOfDayLabel(w.start_hour)} · {hoursLabel(w.end_hour - w.start_hour)} работы
                 </div>
               </div>
-              <span className="chip" data-active={i === 0}>
-                окно {i + 1}
+              {/* Every returned window is a top-demand window; the endpoint gives
+                  no relative strength, so we mark them all as peaks (honest)
+                  rather than an arbitrary "окно N". */}
+              <span className="chip shrink-0" data-active="true">
+                пик спроса
               </span>
             </div>
           ))}

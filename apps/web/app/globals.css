@@ -20,16 +20,31 @@
   --series-5: #9085e9; /* violet */
   --series-6: #e66767; /* red */
 
-  --seq-100: #104281;
-  --seq-300: #184f95;
-  --seq-500: #256abf;
-  --seq-700: #3987e5;
-  --seq-900: #86b6ef;
+  /* Sequential ramp, re-anchored so the LOWEST step already clears ~3:1 on
+     --surface-1 (the old #104281/#184f95 sat at 1.8–2.1:1 = invisible). */
+  --seq-100: #2f6fd0;
+  --seq-300: #4d84d6;
+  --seq-500: #6a9de2;
+  --seq-700: #86b6ef;
+  --seq-900: #a9cbf3;
 
+  /* Two greens, deliberately: --status-good is the semantic UI green (success
+     text, "saved" states); the series greens (--series-4) are DATA-ONLY hues
+     for charts and must never stand in for UI status. */
   --status-good: #0ca30c;
   --status-warning: #fab219;
+  /* --status-serious: reserved for a future 3-level severity scale (good <
+     serious < critical); unused today but kept so the ramp stays complete. */
   --status-serious: #ec835a;
-  --status-critical: #d03b3b;
+  --status-critical: #d03b3b; /* FILLS only (bars/dots) — 3.6:1, fails text AA */
+  --status-critical-text: #ec5f5f; /* lighter critical for TEXT — 5.3:1 on surface */
+
+  /* Elevation language */
+  --surface-2: #242422;
+  --overlay: rgba(18, 18, 20, 0.88);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --ring-focus: var(--series-1);
+  --cta-green: #16a34a; /* green CTA fill — black ink = 6.4:1 */
 
   --background: var(--page-plane);
   --foreground: var(--text-primary);
@@ -50,6 +65,70 @@ body {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Mono-numeral figure util — Geist Mono, tabular, tightened tracking. Used for
+   every "hero" number (кэф, ₽ totals, stat-tile values) so digits align. */
+.figure {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Type scale — five steps. Pages normalize vertical rhythm to two gaps:
+   gap-4 (dense lists/forms) and gap-6 (report/dashboard sections). */
+.text-display {
+  font-size: 1.75rem;
+  line-height: 2rem;
+  font-weight: 700;
+}
+.text-h1 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+}
+.text-h2 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+}
+.text-body {
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+.text-caption {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--text-muted);
+}
+
+/* Semantic text colors (AA on dark surfaces) */
+.text-danger {
+  color: var(--status-critical-text);
+}
+.text-success {
+  color: var(--status-good);
+}
+
+/* Loading shimmer */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-1);
+  border-radius: 0.5rem;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .input {
@@ -78,6 +157,7 @@ select.input {
   background: var(--surface-1);
   border: 1px solid var(--border-hairline);
   border-radius: 1rem;
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .btn-primary {
@@ -89,14 +169,42 @@ select.input {
   padding: 0.625rem 1.25rem;
   border-radius: 0.75rem;
   background: var(--series-1);
-  color: #fff;
+  color: #000; /* black on #3987e5 = 5.77:1 (white was 3.64:1, fails AA) */
   font-weight: 600;
-  transition: opacity 0.15s;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #4d94ea;
 }
 .btn-primary:active {
   opacity: 0.8;
 }
 .btn-primary:disabled {
+  opacity: 0.5;
+}
+
+/* Green call-to-action — own hue, black ink (6.4:1), own hover/shadow. */
+.btn-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--cta-green);
+  color: #000;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 6px 18px -8px rgba(22, 163, 74, 0.5);
+  transition: filter 0.15s, opacity 0.15s;
+}
+.btn-cta:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-cta:active {
+  opacity: 0.85;
+}
+.btn-cta:disabled {
   opacity: 0.5;
 }
 
@@ -112,10 +220,25 @@ select.input {
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
 }
+.chip:not([data-active="true"]):hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
 .chip[data-active="true"] {
   background: var(--series-1);
   border-color: var(--series-1);
-  color: #fff;
+  color: #000; /* black ink = 5.77:1 on the active blue */
+}
+
+/* Global focus ring — every interactive control gets a visible keyboard ring
+   for free (mouse/touch use :focus-visible so it never shows on tap). */
+.chip:focus-visible,
+.btn-primary:focus-visible,
+.btn-cta:focus-visible,
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--ring-focus);
+  outline-offset: 2px;
 }
 
 /* Mobile ergonomics */
@@ -130,4 +253,11 @@ select.input {
 }
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

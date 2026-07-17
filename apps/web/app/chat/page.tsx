@@ -11,11 +11,17 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!userId) return;
-    api.get<ChatMessage[]>(`/v1/chat/${userId}/history`).then(setMessages).catch(() => setMessages([]));
+    setLoadingHistory(true);
+    api
+      .get<ChatMessage[]>(`/v1/chat/${userId}/history`)
+      .then(setMessages)
+      .catch(() => setMessages([]))
+      .finally(() => setLoadingHistory(false));
   }, [userId]);
 
   useEffect(() => {
@@ -62,10 +68,17 @@ export default function ChatPage() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-11.5rem)] md:h-[calc(100dvh-8.5rem)]">
-      <h1 className="text-lg md:text-xl font-semibold mb-3">AI-ассистент</h1>
-      <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
-        {messages.length === 0 && (
+    <div className="relative flex flex-col h-[calc(100dvh-11.5rem)] md:h-[calc(100dvh-8.5rem)]">
+      <h1 className="text-h1 mb-3">AI-ассистент</h1>
+      <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 pb-20">
+        {loadingHistory && (
+          <div className="flex flex-col gap-2 mt-2">
+            <div className="skeleton self-start h-10 w-2/3 rounded-2xl" />
+            <div className="skeleton self-end h-10 w-1/2 rounded-2xl" />
+            <div className="skeleton self-start h-10 w-3/5 rounded-2xl" />
+          </div>
+        )}
+        {!loadingHistory && messages.length === 0 && (
           <div className="flex flex-col items-start gap-2 mt-2">
             <p className="text-sm text-[var(--text-muted)] mb-1">
               Спросите о работе — например:
@@ -96,7 +109,10 @@ export default function ChatPage() {
         )}
         <div ref={bottomRef} />
       </div>
-      <div className="flex gap-2 mt-3">
+      <div
+        className="absolute bottom-0 inset-x-0 flex gap-2 pt-3 pb-1 border-t border-white/10 backdrop-blur"
+        style={{ background: "var(--overlay)" }}
+      >
         <input
           className="input flex-1"
           placeholder="Напишите сообщение..."

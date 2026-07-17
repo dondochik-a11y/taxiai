@@ -12,11 +12,11 @@ export function StatTile({ label, value, delta }: StatTileProps) {
   return (
     <div className="card p-3.5 md:p-4 flex flex-col gap-1">
       <span className="text-xs md:text-sm text-[var(--text-secondary)]">{label}</span>
-      <span className="text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tabular">{value}</span>
+      <span className="figure text-2xl md:text-3xl font-semibold text-[var(--text-primary)]">{value}</span>
       {delta && (
         <span
-          className="text-sm tabular"
-          style={{ color: deltaIsGood ? "var(--status-good)" : "var(--status-critical)" }}
+          className="figure text-sm"
+          style={{ color: deltaIsGood ? "var(--status-good)" : "var(--status-critical-text)" }}
         >
           {delta.direction === "up" ? "▲" : "▼"} {delta.text}
         </span>
