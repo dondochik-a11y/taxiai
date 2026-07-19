@@ -61,6 +61,11 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Full-bleed rows use `-mx-4` and chip rows can be wide; without this a
+     child sticking 16px past the edge gives the whole page a horizontal
+     scroll on a ~390px phone. Intentional scrollers keep their own
+     overflow-x-auto, so clipping the page here is safe. */
+  overflow-x: hidden;
 }
 
 .tabular {
