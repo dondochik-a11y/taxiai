@@ -24,3 +24,6 @@ apps/web/.env*.local
 
 # Local DB dumps (contain user data — never commit)
 backups/
+
+# Claude Code local state (worktrees, settings)
+.claude/
