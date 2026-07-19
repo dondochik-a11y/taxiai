@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,8 @@ SETTLE_WAIT = 1           # seconds after last tap before screenshot (before exp
 
 HERE = Path(__file__).parent
 TAP_POINTS = json.loads((HERE / "tap_points.json").read_text(encoding="utf-8"))
+SPOOL_DIR = HERE / "spool"  # sweeps that failed to POST, waiting for the API
+POST_RETRIES = 3
 
 KEF_RE = re.compile(r"^\d\.\d$")
 RATE_LIMIT_MARKS = ("лимит", "слишком частые")  # "Достигнут лимит…", "Слишком частые тапы"
@@ -210,8 +213,7 @@ def pair(bubbles: list[tuple], points: list[dict]) -> list[dict]:
 
 
 # ---- main -------------------------------------------------------------------
-def post_readings(readings: list[dict], observed_at: datetime) -> None:
-    payload = {"observed_at": observed_at.isoformat(), "readings": readings}
+def _post_payload(payload: dict) -> str:
     req = urllib.request.Request(
         API_URL,
         data=json.dumps(payload).encode(),
@@ -219,7 +221,59 @@ def post_readings(readings: list[dict], observed_at: datetime) -> None:
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
-        print(f"  POST {resp.status}: {resp.read().decode()}")
+        return f"{resp.status}: {resp.read().decode()}"
+
+
+def post_readings(readings: list[dict], observed_at: datetime) -> bool:
+    """POST with retries; on persistent failure spool to disk for the next run.
+
+    A sweep costs ~13 minutes of taps+OCR — losing it to a transient network
+    blip (VPN flap, VPS restart) is the single biggest data leak in the
+    pipeline. Old readings are still valuable: kef_observations is raw
+    training history, only the live surge cascade ignores rows >45 min.
+    """
+    payload = {"observed_at": observed_at.isoformat(), "readings": readings}
+    for attempt in range(1, POST_RETRIES + 1):
+        try:
+            print(f"  POST {_post_payload(payload)}")
+            return True
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500:
+                # our payload is malformed; retrying or spooling can't fix it
+                print(f"  POST rejected ({e.code} {e.reason}); dropping", file=sys.stderr)
+                return False
+            print(f"  POST attempt {attempt}/{POST_RETRIES}: HTTP {e.code}", file=sys.stderr)
+        except Exception as e:
+            print(f"  POST attempt {attempt}/{POST_RETRIES}: {e}", file=sys.stderr)
+        if attempt < POST_RETRIES:
+            time.sleep(15 * attempt)
+    SPOOL_DIR.mkdir(exist_ok=True)
+    spool_path = SPOOL_DIR / f"{observed_at:%Y%m%d-%H%M%S}.json"
+    spool_path.write_text(json.dumps(payload), encoding="utf-8")
+    # cap the spool so a long API outage can't fill the disk (96 = 24h of sweeps)
+    for stale in sorted(SPOOL_DIR.glob("*.json"))[:-96]:
+        stale.unlink()
+    print(f"  API unreachable after {POST_RETRIES} attempts; spooled to {spool_path.name}")
+    return False
+
+
+def flush_spool() -> None:
+    """Re-post sweeps spooled while the API was unreachable (oldest first)."""
+    for path in sorted(SPOOL_DIR.glob("*.json")) if SPOOL_DIR.is_dir() else []:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            print(f"  spool {path.name}: POST {_post_payload(payload)}")
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500:
+                print(f"  spool {path.name} rejected ({e.code}); dropping", file=sys.stderr)
+                path.unlink()
+                continue
+            print(f"  spool {path.name} failed: HTTP {e.code}; keeping", file=sys.stderr)
+            return  # API is unhappy again — leave the rest for the next run
+        except Exception as e:
+            print(f"  spool {path.name} failed: {e}; keeping", file=sys.stderr)
+            return
+        path.unlink()
 
 
 def main() -> int:
@@ -271,7 +325,9 @@ def main() -> int:
         print("no readings collected; nothing to post")
         return 1
     print(f"collected {len(all_readings)} district readings; posting...")
-    post_readings(all_readings, observed_at)
+    if not post_readings(all_readings, observed_at):
+        return 1
+    flush_spool()  # API is clearly reachable — drain anything spooled earlier
     return 0
 
 
