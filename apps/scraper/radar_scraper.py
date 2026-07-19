@@ -48,7 +48,10 @@ LAUNCH_WAIT = 6           # seconds to let the app draw the map after relaunch
 SETTLE_WAIT = 1           # seconds after last tap before screenshot (before expiry)
 
 HERE = Path(__file__).parent
-TAP_POINTS = json.loads((HERE / "tap_points.json").read_text(encoding="utf-8"))
+# Multi-instance sweeps: each scraper copy gets its own slice of the city via
+# RADAR_TAP_POINTS (e.g. tap_points_a.json / tap_points_b.json) + ANDROID_SERIAL.
+TAP_POINTS_FILE = os.environ.get("RADAR_TAP_POINTS", "tap_points.json")
+TAP_POINTS = json.loads((HERE / TAP_POINTS_FILE).read_text(encoding="utf-8"))
 SPOOL_DIR = HERE / "spool"  # sweeps that failed to POST, waiting for the API
 POST_RETRIES = 3
 

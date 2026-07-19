@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deployed copy: lives in ~/.taxiai/scraper (NOT ~/Documents) because launchd
+     agents have no TCC access to the Documents folder — a venv inside the repo
+     hangs the job forever on a consent prompt nobody sees. Source of truth for
+     the script stays in the repo (apps/scraper/); re-copy on changes. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.taxiai.radar2</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tim/.taxiai/scraper/.venv/bin/python</string>
+        <string>/Users/tim/.taxiai/scraper/radar_scraper.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ANDROID_SERIAL</key>
+        <string>emulator-5556</string>
+        <key>RADAR_TAP_POINTS</key>
+        <string>tap_points_b.json</string>
+        <key>RADAR_API_URL</key>
+        <string>https://93.189.228.203.sslip.io/api/v1/kef/ingest</string>
+        <key>SSL_CERT_FILE</key>
+        <string>/Users/tim/.taxiai/scraper/.venv/lib/python3.13/site-packages/certifi/cacert.pem</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+    <!-- 900s = 15 min. A sweep takes ~13 min, so this is near back-to-back;
+         launchd never runs two copies at once, it just starts the next one
+         shortly after the current sweep exits. Back-to-back mode since
+         2026-07-19: KeepAlive restarts the sweep the moment it exits;
+         ThrottleInterval caps respawn of a fast-failing sweep at 2 min. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>120</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/tim/.taxiai/scraper/radar2.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tim/.taxiai/scraper/radar2.log</string>
+</dict>
+</plist>

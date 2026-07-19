@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keeps the headless Android emulator alive for the kef scraper.
+     Deploy run_emulator2.sh to ~/.taxiai/emulator/ (NOT ~/Documents — TCC),
+     copy this plist to ~/Library/LaunchAgents/ and launchctl load it. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.taxiai.emulator2</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>/Users/tim/.taxiai/emulator/run_emulator2.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ANDROID_SDK_ROOT</key>
+        <string>/opt/homebrew/share/android-commandlinetools</string>
+        <key>HOME</key>
+        <string>/Users/tim</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/tim/.taxiai/emulator/emulator2.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tim/.taxiai/emulator/emulator2.log</string>
+</dict>
+</plist>
