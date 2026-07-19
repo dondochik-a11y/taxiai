@@ -73,6 +73,17 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def ocr_ingest_kef(
+        self, image_b64: str, user_id: str | None = None, mime: str = "image/jpeg"
+    ) -> dict:
+        payload: dict = {"image_b64": image_b64, "mime": mime}
+        if user_id:
+            payload["user_id"] = user_id
+        # vision OCR is slow — give it well past the client default
+        resp = await self._client.post("/v1/kef/ocr-ingest", json=payload, timeout=90.0)
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_link_code(self, user_id: str) -> dict:
         resp = await self._client.post("/v1/link/code", json={"user_id": user_id})
         resp.raise_for_status()

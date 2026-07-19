@@ -66,6 +66,35 @@ def render_kef_table(surge_rows: list[dict], district_names: dict[int, str], top
     )
 
 
+def render_ocr_result(result: dict, district_names: dict[int, str]) -> str:
+    """Echo what the vision OCR read off a driver's surge screenshot, so the
+    driver sees their contribution landed (and can spot a misread)."""
+    readings = result.get("readings") or []
+    if not readings:
+        return (
+            "Не нашёл на скрине значений кэфа. Нужен скрин карты повышенного "
+            "спроса (Яндекс Про или радар) с цифрами на районах."
+        )
+    lines = []
+    for r in readings[:10]:
+        if r.get("district_id") is not None:
+            place = district_names.get(r["district_id"], f"район #{r['district_id']}")
+        else:
+            place = r.get("area_hint") or "без привязки к району"
+        kef = f"{r['kef_min']:.1f}"
+        if r.get("kef_max") is not None and r["kef_max"] != r["kef_min"]:
+            kef += f"–{r['kef_max']:.1f}"
+        lines.append(f"• {html.escape(place)}: {kef}")
+    extra = f"\n…и ещё {len(readings) - 10}." if len(readings) > 10 else ""
+    return (
+        f"📷 Прочитал кэф со скрина — записал {result.get('stored', len(readings))} "
+        f"значений, привязал к районам: {result.get('resolved_districts', 0)}.\n"
+        + "\n".join(lines)
+        + extra
+        + "\n\nСпасибо! Эти данные улучшают карту для всех."
+    )
+
+
 def render_finance_summary(summary: dict) -> str:
     if not summary or not summary.get("trips_count"):
         return "Пока нет поездок за сегодня — итоги появятся после первой записанной поездки."

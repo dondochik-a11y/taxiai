@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 
 from bot.api_client import api_client
 from bot.config import settings
-from bot.handlers import chat, errors, finance, help, kef, link, plan, profile, start, where
+from bot.handlers import chat, errors, finance, help, kef, link, photo, plan, profile, start, where
 from bot.scheduler import notification_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -60,6 +60,7 @@ async def main() -> None:
     dispatcher.include_router(finance.router)
     dispatcher.include_router(plan.router)
     dispatcher.include_router(profile.router)  # state-filtered; must come before the catch-all below
+    dispatcher.include_router(photo.router)  # F.photo; the catch-all below would swallow photos
     dispatcher.include_router(chat.router)  # catch-all; must be registered last
 
     await bot.set_my_commands(BOT_COMMANDS)

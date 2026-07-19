@@ -7,6 +7,7 @@ from bot.render import (
     render_daily_plan,
     render_finance_summary,
     render_kef_table,
+    render_ocr_result,
     render_recommendation,
 )
 
@@ -119,6 +120,31 @@ def test_finance_summary() -> None:
 def test_finance_summary_empty_day() -> None:
     text = render_finance_summary({"summary_date": "2026-07-17", "trips_count": 0})
     assert "нет поездок" in text.lower()
+
+
+def test_ocr_result_mixed_readings() -> None:
+    text = render_ocr_result(
+        {
+            "stored": 3,
+            "resolved_districts": 2,
+            "readings": [
+                {"kef_min": 1.5, "kef_max": 2.1, "district_id": 1},
+                {"kef_min": 1.8, "kef_max": None, "district_id": None, "area_hint": "Марфино"},
+                {"kef_min": 2.0, "kef_max": 2.0, "district_id": 99},
+            ],
+        },
+        DISTRICTS,
+    )
+    assert "записал 3" in text
+    assert "Хамовники: 1.5–2.1" in text
+    assert "Марфино: 1.8" in text
+    assert "район #99: 2.0" in text  # unknown id → honest fallback, no range for equal min/max
+    assert "2.0–2.0" not in text
+
+
+def test_ocr_result_empty() -> None:
+    text = render_ocr_result({"stored": 0, "resolved_districts": 0, "readings": []}, DISTRICTS)
+    assert "Не нашёл" in text
 
 
 def test_daily_plan() -> None:
