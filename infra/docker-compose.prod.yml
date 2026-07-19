@@ -97,6 +97,17 @@ services:
     depends_on:
       - api
 
+  adminer:
+    # Single-file DB admin UI, reachable at https://<domain>/db (see Caddyfile).
+    # No published ports — only Caddy can reach it on the internal network.
+    image: adminer:4
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

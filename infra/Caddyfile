@@ -6,6 +6,11 @@
 	handle_path /api/* {
 		reverse_proxy api:8000
 	}
+	# Browser DB viewer (Adminer). Gated by the Postgres credentials at its
+	# own login form; Postgres itself stays off the public network.
+	handle_path /db* {
+		reverse_proxy adminer:8080
+	}
 	handle {
 		reverse_proxy web:3000
 	}
