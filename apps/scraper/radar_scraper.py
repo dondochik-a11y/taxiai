@@ -294,8 +294,8 @@ def main() -> int:
         batches = batches[:max_batches]
     print(f"{len(TAP_POINTS)} districts -> running {len(batches)} batches: {[len(b) for b in batches]}")
 
-    observed_at = datetime.now(timezone.utc)
     all_readings: list[dict] = []
+    posted_any = False
     shot = HERE / "_last_batch.png"
 
     restart_app(reader)  # once: clean slate; markers self-expire, so no per-batch restart
@@ -318,17 +318,21 @@ def main() -> int:
         all_readings.extend(readings)
         note = " [RATE-LIMITED]" if limited else ""
         print(f"batch {i+1}/{len(batches)}: {len(readings)}/{len(batch)} read{note}")
+        # Post per batch, not at sweep end: rows reach the DB (and the live
+        # surge cascade) within ~2 min of being read with an honest per-batch
+        # timestamp, and a sweep killed mid-run keeps everything already read.
+        if readings and post_readings(readings, datetime.now(timezone.utc)):
+            posted_any = True
         if i < len(batches) - 1:
             time.sleep(INTER_BATCH_WAIT)  # let the per-minute cap reset & markers expire
 
     if not all_readings:
         print("no readings collected; nothing to post")
         return 1
-    print(f"collected {len(all_readings)} district readings; posting...")
-    if not post_readings(all_readings, observed_at):
-        return 1
-    flush_spool()  # API is clearly reachable — drain anything spooled earlier
-    return 0
+    if posted_any:
+        flush_spool()  # API is clearly reachable — drain anything spooled earlier
+    print(f"sweep done: {len(all_readings)} readings across {len(batches)} batches")
+    return 0 if posted_any else 1
 
 
 if __name__ == "__main__":
