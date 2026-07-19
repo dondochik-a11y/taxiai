@@ -28,11 +28,14 @@
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
     </dict>
-    <!-- 900s = 15 min. A sweep takes ~13 min, so sweeps run near back-to-back;
-         launchd never runs two copies at once (the next starts after the
-         current sweep exits). Was 1800; tightened for denser kef coverage. -->
-    <key>StartInterval</key>
-    <integer>900</integer>
+    <!-- Back-to-back sweeps: as soon as one exits, launchd starts the next
+         (a full 13-batch sweep takes ~25 min, so this is the real cadence
+         ceiling). ThrottleInterval stops a fast-failing sweep (no device,
+         locked screen, dead API) from respawning more than every 2 min. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>120</integer>
     <key>StandardOutPath</key>
     <string>/Users/tim/Documents/work/taxi/apps/scraper/radar.log</string>
     <key>StandardErrorPath</key>
