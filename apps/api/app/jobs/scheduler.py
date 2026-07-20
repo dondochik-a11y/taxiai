@@ -123,6 +123,12 @@ def _run_retrain_job() -> None:
     )
     if result.returncode != 0:
         logger.error("Model retrain failed:\n%s", result.stderr[-2000:])
+        # returncode -9 with empty stderr = the kernel OOM killer; say so
+        # explicitly — this exact failure went unnoticed for two weeks.
+        detail = result.stderr.strip()[-300:] or (
+            "код -9, пустой stderr — похоже на OOM killer" if result.returncode == -9 else f"код {result.returncode}"
+        )
+        _notify_telegram(f"❌ TaxiAI: еженедельное переобучение модели упало ({detail})")
         return
     logger.info("Model retrained:\n%s", result.stdout.strip()[-500:])
     _run_forecast_job()
@@ -172,6 +178,28 @@ def _run_kef_retention_job() -> None:
         session.close()
 
 
+def _notify_telegram(text_msg: str) -> bool:
+    """Push to Tim's notification bot (@clnotifi1bot, NOT the app bot). No-op
+    False unless NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID are set."""
+    import os
+    import urllib.parse
+    import urllib.request
+
+    token = os.environ.get("NOTIFY_TELEGRAM_TOKEN")
+    chat_id = os.environ.get("NOTIFY_TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return False
+    try:
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text_msg}).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=10
+        )
+        return True
+    except Exception:
+        logger.exception("Telegram notify failed")
+        return False
+
+
 # Radar watchdog state: assume alive at boot so a dead feed on the very first
 # check still alerts, and a healthy boot stays silent.
 _radar_was_alive = True
@@ -186,16 +214,7 @@ def _run_radar_watchdog_job() -> None:
     line is easy to miss, and a silent radar means the map quietly degrades to
     synthetic. No-op unless NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID
     are set in the environment."""
-    import os
-    import urllib.parse
-    import urllib.request
-
     from sqlalchemy import text
-
-    token = os.environ.get("NOTIFY_TELEGRAM_TOKEN")
-    chat_id = os.environ.get("NOTIFY_TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        return
 
     session = SessionLocal()
     try:
@@ -222,14 +241,8 @@ def _run_radar_watchdog_job() -> None:
         else f"⚠️ TaxiAI: радар кэфа молчит — {coverage} районов за последний час "
         "(порог 10). Проверь Mac/эмуляторы."
     )
-    try:
-        data = urllib.parse.urlencode({"chat_id": chat_id, "text": msg}).encode()
-        urllib.request.urlopen(
-            f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=10
-        )
+    if _notify_telegram(msg):
         logger.info("Radar watchdog alert sent (alive=%s, coverage=%d)", alive, coverage)
-    except Exception:
-        logger.exception("Radar watchdog Telegram send failed")
 
 
 def _run_opensky_job() -> None:

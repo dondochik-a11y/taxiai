@@ -32,6 +32,14 @@ MODEL_VERSION = "hgbr-v2"  # v2: clock features shifted to the forecast target t
 
 HOLDOUT_DAYS = 14
 
+# OOM guard: the prod VPS has ~4 GB RAM, and by mid-July 2026 the full-history
+# training set crossed 4M rows — the float32 fit-input copy alone stopped
+# fitting, and the weekly retrain died to the kernel OOM killer with nothing in
+# the log (the artifact silently stayed at its Jul 9 version). A uniform random
+# subsample preserves the time/district distribution; HGBR's MAE barely moves.
+MAX_TRAIN_ROWS = 1_000_000
+MAX_HOLDOUT_ROWS = 300_000
+
 
 def main() -> None:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,6 +57,7 @@ def main() -> None:
     print("Building features...")
     feature_df = feat.build_features(demand_df, weather_df, traffic_df, calendar_df, districts_df)
     training_df = feat.make_training_set(feature_df, district_ids)
+    del feature_df, demand_df, weather_df, traffic_df  # free before the fit copies
     print(f"Training set: {len(training_df)} rows across horizons {feat.HORIZONS_MINUTES}")
 
     columns = feat.feature_columns_for(district_ids)
@@ -60,6 +69,14 @@ def main() -> None:
     if holdout_df.empty:
         print("Not enough history for a time-based holdout; training on everything.")
         train_df, holdout_df = training_df, training_df.iloc[0:0]
+    del training_df
+
+    if len(train_df) > MAX_TRAIN_ROWS:
+        print(f"Subsampling {MAX_TRAIN_ROWS} of {len(train_df)} train rows (OOM guard)")
+        train_df = train_df.sample(n=MAX_TRAIN_ROWS, random_state=42)
+    if len(holdout_df) > MAX_HOLDOUT_ROWS:
+        print(f"Subsampling {MAX_HOLDOUT_ROWS} of {len(holdout_df)} holdout rows (OOM guard)")
+        holdout_df = holdout_df.sample(n=MAX_HOLDOUT_ROWS, random_state=42)
 
     model = HistGradientBoostingRegressor(max_depth=6, learning_rate=0.08, max_iter=300)
     # float32 halves the peak RAM of the fit-input copy — matters for the
