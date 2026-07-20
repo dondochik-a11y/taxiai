@@ -70,6 +70,14 @@ def main() -> None:
         preds = model.predict(holdout_df[columns].astype(np.float32))
         mae = mean_absolute_error(holdout_df["label"], preds)
         print(f"Holdout MAE (demand_level, 0-1 scale): {mae:.4f} on {len(holdout_df)} rows")
+        # Per-horizon breakdown — one aggregate number hides where the model
+        # actually degrades (long horizons should be worse; if they aren't,
+        # the horizon features are being ignored).
+        for horizon in feat.HORIZONS_MINUTES:
+            m = (holdout_df["horizon_minutes"] == horizon).to_numpy()
+            if m.any():
+                h_mae = mean_absolute_error(holdout_df["label"].to_numpy()[m], preds[m])
+                print(f"  horizon {horizon:>3} min: MAE {h_mae:.4f} on {int(m.sum())} rows")
 
     joblib.dump(
         {

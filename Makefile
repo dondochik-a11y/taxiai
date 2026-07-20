@@ -1,4 +1,7 @@
-.PHONY: up down logs migrate seed train patterns test web-dev backup prod-up prod-logs prod-migrate
+.PHONY: up down logs migrate seed train patterns test web-dev backup prod-up prod-logs prod-migrate deploy deploy-web deploy-bot prod-train
+
+VPS_SSH = ssh -i ~/.ssh/taxiai_vps root@93.189.228.203
+PROD_COMPOSE = docker compose -f infra/docker-compose.prod.yml
 
 up:
 	docker compose -f infra/docker-compose.yml up -d --build
@@ -39,3 +42,17 @@ prod-logs:
 
 prod-migrate:
 	docker compose -f infra/docker-compose.prod.yml exec api alembic upgrade head
+
+# Deploy from the Mac: api/worker are bind-mounted on the VPS, so python-side
+# changes only need pull + restart; web/bot are baked images and need a build.
+deploy:
+	$(VPS_SSH) "cd /opt/taxiai && git pull && $(PROD_COMPOSE) restart api worker"
+
+deploy-web:
+	$(VPS_SSH) "cd /opt/taxiai && git pull && $(PROD_COMPOSE) up -d --build web"
+
+deploy-bot:
+	$(VPS_SSH) "cd /opt/taxiai && git pull && $(PROD_COMPOSE) up -d --build bot"
+
+prod-train:
+	$(VPS_SSH) "cd /opt/taxiai && $(PROD_COMPOSE) exec -T api python -m app.ml.train_demand_model"

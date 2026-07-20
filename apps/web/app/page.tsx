@@ -137,6 +137,10 @@ export default function DashboardPage() {
   }, []);
   const onRecShortcut = useCallback(() => setRecFocus(true), []);
 
+  // Last coordinates a recommendation was computed from — lets the horizon
+  // chips silently re-scope the answer without re-asking for geolocation.
+  const lastRecCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
   const requestRecommendation = useCallback(
     async (lat: number, lng: number, silent = false) => {
       try {
@@ -146,6 +150,7 @@ export default function DashboardPage() {
           horizon_minutes: horizon,
         });
         setRecommendation(rec);
+        lastRecCoordsRef.current = { lat, lng };
         if (silent) setRecError(null);
       } catch (err) {
         setRecError(err instanceof Error ? err.message : "Не удалось получить рекомендацию");
@@ -215,6 +220,16 @@ export default function DashboardPage() {
     autoRequestedRef.current = true;
     askForRecommendation(!recFocus);
   }, [userId, districts.length, recFocus, askForRecommendation]);
+
+  // Changing the horizon re-scopes «куда ехать» too: recompute silently from
+  // the same spot (no geolocation prompt, no skeleton flash).
+  const prevHorizonRef = useRef(horizon);
+  useEffect(() => {
+    if (prevHorizonRef.current === horizon) return;
+    prevHorizonRef.current = horizon;
+    const c = lastRecCoordsRef.current;
+    if (c) requestRecommendation(c.lat, c.lng, true);
+  }, [horizon, requestRecommendation]);
 
   const recDistrict = recommendation
     ? districtById.get(recommendation.recommended_district_id)

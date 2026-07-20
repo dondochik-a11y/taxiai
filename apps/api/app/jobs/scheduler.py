@@ -172,6 +172,66 @@ def _run_kef_retention_job() -> None:
         session.close()
 
 
+# Radar watchdog state: assume alive at boot so a dead feed on the very first
+# check still alerts, and a healthy boot stays silent.
+_radar_was_alive = True
+# Two emulator halves cover ~130 districts every ~13 min, so one hour of a
+# healthy feed yields far more than this; below it the radar is effectively out.
+RADAR_MIN_DISTRICTS = 10
+
+
+def _run_radar_watchdog_job() -> None:
+    """Hourly radar-liveness check with a Telegram push (Tim's @clnotifi1bot,
+    NOT the app bot) on the dead↔alive transition — the daily retention log
+    line is easy to miss, and a silent radar means the map quietly degrades to
+    synthetic. No-op unless NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID
+    are set in the environment."""
+    import os
+    import urllib.parse
+    import urllib.request
+
+    from sqlalchemy import text
+
+    token = os.environ.get("NOTIFY_TELEGRAM_TOKEN")
+    chat_id = os.environ.get("NOTIFY_TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+
+    session = SessionLocal()
+    try:
+        coverage = session.execute(
+            text(
+                "SELECT count(DISTINCT district_id) FROM kef_observations "
+                "WHERE observed_at > now() - interval '1 hour' AND district_id IS NOT NULL"
+            )
+        ).scalar() or 0
+    except Exception:
+        logger.exception("Radar watchdog coverage query failed")
+        return
+    finally:
+        session.close()
+
+    global _radar_was_alive
+    alive = coverage >= RADAR_MIN_DISTRICTS
+    if alive == _radar_was_alive:
+        return
+    _radar_was_alive = alive
+    msg = (
+        f"✅ TaxiAI: радар кэфа снова в строю ({coverage} районов за час)."
+        if alive
+        else f"⚠️ TaxiAI: радар кэфа молчит — {coverage} районов за последний час "
+        "(порог 10). Проверь Mac/эмуляторы."
+    )
+    try:
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": msg}).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=10
+        )
+        logger.info("Radar watchdog alert sent (alive=%s, coverage=%d)", alive, coverage)
+    except Exception:
+        logger.exception("Radar watchdog Telegram send failed")
+
+
 def _run_opensky_job() -> None:
     from app.jobs.ingest_opensky import sync_realtime_arrivals
 
@@ -195,6 +255,7 @@ def main() -> None:
     scheduler.add_job(_run_calendar_sync_job, "interval", hours=24, id="calendar_sync_tick")
     scheduler.add_job(_run_flights_sync_job, "interval", hours=24, id="flights_sync_tick")
     scheduler.add_job(_run_kef_retention_job, "interval", hours=24, id="kef_retention_tick")
+    scheduler.add_job(_run_radar_watchdog_job, "interval", hours=1, id="radar_watchdog_tick")
     # No-op until Yandex clid+apikey land in .env; cadence per negotiated limits.
     scheduler.add_job(
         _run_price_poll_job,
