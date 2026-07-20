@@ -130,6 +130,11 @@ interface HoverInfo {
 interface StyledDistrict {
   d: District;
   demand: number;
+  /** Demand rescaled to this render's actual min–max spread across districts —
+   * model forecasts differ by hundredths, so the absolute 0..1 scale would
+   * paint every horizon the same colour. The legend is relative («меньше…
+   * больше»), which keeps this honest. */
+  demandNorm: number;
   surge: number;
   surgeNorm: number;
   freshness: Freshness;
@@ -139,16 +144,22 @@ interface StyledDistrict {
 
 /** Visual signature of a marker — markers only re-render when this changes, so
  * the 5-min surge poll updates a handful of chips instead of rebuilding all. */
-function markerSignature(s: StyledDistrict, mode: MapMode, hasPolygon: boolean): string {
-  const v = mode === "surge" ? s.surge.toFixed(2) : s.demand.toFixed(3);
-  return `${mode}|${hasPolygon ? 1 : 0}|${s.fill}|${s.ink}|${s.freshness}|${v}`;
+function markerSignature(
+  s: StyledDistrict,
+  mode: MapMode,
+  hasPolygon: boolean,
+  fromForecast: boolean
+): string {
+  const v = mode === "surge" ? s.surge.toFixed(2) : s.demandNorm.toFixed(3);
+  return `${mode}|${fromForecast ? 1 : 0}|${hasPolygon ? 1 : 0}|${s.fill}|${s.ink}|${s.freshness}|${v}`;
 }
 
 function styleMarkerEl(
   el: HTMLDivElement,
   s: StyledDistrict,
   mode: MapMode,
-  hasPolygon: boolean
+  hasPolygon: boolean,
+  fromForecast: boolean
 ): void {
   el.style.cursor = "pointer";
   el.style.display = "flex";
@@ -180,10 +191,12 @@ function styleMarkerEl(
     }
     el.setAttribute(
       "aria-label",
-      `${s.d.name}: кэф ×${s.surge.toFixed(1)}${stale ? ", данные не в реальном времени" : ""}`
+      `${s.d.name}: ${fromForecast ? "прогноз кэфа" : "кэф"} ×${s.surge.toFixed(1)}${
+        stale ? ", данные не в реальном времени" : ""
+      }`
     );
   } else {
-    const size = 16 + s.demand * 20;
+    const size = 16 + s.demandNorm * 20;
     el.style.borderRadius = "50%";
     el.style.width = `${size}px`;
     el.style.height = `${size}px`;
@@ -206,6 +219,9 @@ interface MoscowMapProps {
    * synthetic feed otherwise. */
   surgeNowByDistrict?: Map<number, SurgeNow>;
   mode?: MapMode;
+  /** Surge mode only: paint the map by the selected-horizon model forecast
+   * instead of the live кэф feed (the «прогноз N мин» chips). */
+  surgeFromForecast?: boolean;
   onSelectDistrict?: (districtId: number) => void;
   /** Deep-link focus: center the map on this district and open its info panel
    * once the map + data are ready. Unknown ids are ignored. */
@@ -217,6 +233,7 @@ function MoscowMapImpl({
   forecastByDistrict,
   surgeNowByDistrict,
   mode = "demand",
+  surgeFromForecast = false,
   onSelectDistrict,
   focusDistrictId,
 }: MoscowMapProps) {
@@ -301,15 +318,24 @@ function MoscowMapImpl({
       ])
     );
 
+    // Demand colours are relative to this render's spread (see StyledDistrict).
+    const demands = districts.map((d) => forecastByDistrict.get(d.id)?.predicted_demand_level ?? 0);
+    const demandMin = Math.min(...demands);
+    const demandSpread = Math.max(...demands) - demandMin;
+
     const styled = districts.map((d) => {
       const surgeNow = surgeNowByDistrict?.get(d.id);
       const forecast = forecastByDistrict.get(d.id);
       const demand = forecast?.predicted_demand_level ?? 0;
-      // The radar shows the CURRENT кэф when the live feed has it; the model
-      // forecast is the fallback (and stays available in the hover panel).
-      const surge = surgeNow?.surge ?? forecast?.predicted_surge ?? SURGE_MIN;
+      const demandNorm = demandSpread > 1e-9 ? (demand - demandMin) / demandSpread : 0.5;
+      // «сейчас»: the radar shows the CURRENT кэф when the live feed has it,
+      // model forecast as fallback. «прогноз N мин»: forecast first — that is
+      // what the user asked to see (freshness cues are for live data only).
+      const surge = surgeFromForecast
+        ? forecast?.predicted_surge ?? surgeNow?.surge ?? SURGE_MIN
+        : surgeNow?.surge ?? forecast?.predicted_surge ?? SURGE_MIN;
       const surgeNorm = Math.min(1, Math.max(0, (surge - SURGE_MIN) / (SURGE_MAX - SURGE_MIN)));
-      const freshness = freshnessOf(surgeNow?.source);
+      const freshness: Freshness = surgeFromForecast ? "fresh" : freshnessOf(surgeNow?.source);
       const shape = featureByName.get(normalizeDistrictName(d.name));
 
       let fill: string;
@@ -321,10 +347,10 @@ function MoscowMapImpl({
         ink = c.ink;
         fillOpacity = FILL_OPACITY[freshness];
       } else {
-        fill = colorFor(demand);
+        fill = colorFor(demandNorm);
         fillOpacity = DEMAND_FILL_OPACITY;
       }
-      const s: StyledDistrict = { d, demand, surge, surgeNorm, freshness, fill, ink };
+      const s: StyledDistrict = { d, demand, demandNorm, surge, surgeNorm, freshness, fill, ink };
       return { s, shape, fillOpacity };
     });
 
@@ -438,17 +464,17 @@ function MoscowMapImpl({
     }
 
     needed.forEach(({ s, hasPolygon }, id) => {
-      const sig = markerSignature(s, mode, hasPolygon);
+      const sig = markerSignature(s, mode, hasPolygon, surgeFromForecast);
       const existing = markersRef.current.get(id);
       if (existing) {
         if (markerSigRef.current.get(id) !== sig) {
-          styleMarkerEl(existing.el, s, mode, hasPolygon);
+          styleMarkerEl(existing.el, s, mode, hasPolygon, surgeFromForecast);
           markerSigRef.current.set(id, sig);
         }
         return;
       }
       const el = document.createElement("div");
-      styleMarkerEl(el, s, mode, hasPolygon);
+      styleMarkerEl(el, s, mode, hasPolygon, surgeFromForecast);
       el.setAttribute("role", "button");
       el.tabIndex = 0;
       const activate = (ev: Event) => {
@@ -471,7 +497,7 @@ function MoscowMapImpl({
       markersRef.current.set(id, { marker, el });
       markerSigRef.current.set(id, sig);
     });
-  }, [districts, forecastByDistrict, surgeNowByDistrict, mode, shapes, mapReady]);
+  }, [districts, forecastByDistrict, surgeNowByDistrict, mode, surgeFromForecast, shapes, mapReady]);
 
   // Highlight the hovered polygon with a bright outline.
   useEffect(() => {
@@ -573,7 +599,7 @@ function MoscowMapImpl({
           ))}
           <span>{mode === "surge" ? "×2.8" : "больше"}</span>
         </div>
-        {mode === "surge" && (
+        {mode === "surge" && !surgeFromForecast && (
           <div className="text-[var(--text-muted)] mt-1 flex items-center gap-1.5">
             <span
               className="inline-block w-4 h-0 align-middle"
@@ -582,6 +608,9 @@ function MoscowMapImpl({
             />
             <span>⚠ / пунктир — данные не в реальном времени</span>
           </div>
+        )}
+        {mode === "surge" && surgeFromForecast && (
+          <div className="text-[var(--text-muted)] mt-1">прогноз модели, не live-данные</div>
         )}
       </div>
 

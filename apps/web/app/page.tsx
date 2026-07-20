@@ -61,6 +61,9 @@ export default function DashboardPage() {
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [horizon, setHorizon] = useState(30);
   const [mode, setMode] = useState<MapMode>("demand");
+  // Surge mode has an extra «сейчас» view (the live radar кэф, the default);
+  // picking a horizon chip switches the map to the model forecast instead.
+  const [surgeNowView, setSurgeNowView] = useState(true);
   const [focusDistrictId, setFocusDistrictId] = useState<number | undefined>(undefined);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
@@ -334,16 +337,28 @@ export default function DashboardPage() {
 
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
         <span className="text-sm text-[var(--text-muted)] shrink-0">
-          {mode === "surge" ? "прогноз на:" : "горизонт:"}
+          {mode === "surge" ? "кэф:" : "горизонт:"}
         </span>
+        {mode === "surge" && (
+          <button
+            onClick={() => setSurgeNowView(true)}
+            data-active={surgeNowView}
+            className="chip shrink-0"
+          >
+            сейчас
+          </button>
+        )}
         {HORIZONS.map((h) => (
           <button
             key={h}
-            onClick={() => setHorizon(h)}
-            data-active={horizon === h}
+            onClick={() => {
+              setHorizon(h);
+              if (mode === "surge") setSurgeNowView(false);
+            }}
+            data-active={horizon === h && (mode !== "surge" || !surgeNowView)}
             className="chip shrink-0"
           >
-            {h} мин
+            {mode === "surge" ? `прогноз ${h} мин` : `${h} мин`}
           </button>
         ))}
       </div>
@@ -372,6 +387,7 @@ export default function DashboardPage() {
         forecastByDistrict={forecastByDistrict}
         surgeNowByDistrict={surgeNowByDistrict}
         mode={mode}
+        surgeFromForecast={mode === "surge" && !surgeNowView}
         focusDistrictId={focusDistrictId}
         onSelectDistrict={focusOnDistrict}
       />
