@@ -150,6 +150,29 @@ def build_features(
     return df
 
 
+def shift_clock_features(df: pd.DataFrame, horizon_minutes: int) -> pd.DataFrame:
+    """Recompute the clock features at the forecast TARGET time (observed_at +
+    horizon), in place. Without this every horizon sees identical "now" clock
+    features and the model has to reconstruct the phase shift from
+    horizon_minutes alone — which trees barely do, so forecasts came out nearly
+    flat across horizons. horizon_minutes stays a feature: it still encodes how
+    stale the lag features are. Date-based flags (is_holiday/is_event_today)
+    are left at the observation date — a horizon crossing midnight is a
+    rounding error at ≤2h. Both training and inference must route every
+    per-horizon frame through here, or the clock conventions skew."""
+    target = df["observed_at"] + timedelta(minutes=horizon_minutes)
+    hour = target.dt.hour + target.dt.minute / 60.0
+    h_angle = 2 * np.pi * hour / 24.0
+    dow = target.dt.weekday
+    d_angle = 2 * np.pi * dow / 7.0
+    df["hour_sin"] = np.sin(h_angle)
+    df["hour_cos"] = np.cos(h_angle)
+    df["dow_sin"] = np.sin(d_angle)
+    df["dow_cos"] = np.cos(d_angle)
+    df["is_weekend"] = (dow >= 5).astype(int)
+    return df
+
+
 def district_dummy_columns(district_ids: list[int]) -> list[str]:
     return [f"district_{d}" for d in sorted(district_ids)]
 
@@ -208,6 +231,7 @@ def make_training_set(
         delta = timedelta(minutes=horizon)
         sub = feature_df.copy()
         sub["horizon_minutes"] = horizon
+        sub = shift_clock_features(sub, horizon)
         future = pd.MultiIndex.from_arrays([sub["district_id"], sub["observed_at"] + delta])
         sub["label"] = lookup.reindex(future).to_numpy()
         sub = sub.dropna(subset=["label"])

@@ -28,7 +28,7 @@ from app.ml import features as feat  # noqa: E402
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 MODEL_PATH = ARTIFACTS_DIR / "demand_model.joblib"
-MODEL_VERSION = "hgbr-v1"
+MODEL_VERSION = "hgbr-v2"  # v2: clock features shifted to the forecast target time
 
 HOLDOUT_DAYS = 14
 

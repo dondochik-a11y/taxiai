@@ -131,6 +131,7 @@ def generate_forecasts(session: Session, horizons: list[int] = feat.HORIZONS_MIN
     for horizon in horizons:
         batch = current.copy()
         batch["horizon_minutes"] = horizon
+        batch = feat.shift_clock_features(batch, horizon)
         preds = model.predict(batch[columns])
         target_time = t0 + timedelta(minutes=horizon)
         for district_id, pred in zip(batch["district_id"], preds):
