@@ -41,8 +41,18 @@ def get_maps_provider(db: Session = Depends(get_db)) -> MapsProvider:
 
 def get_llm_provider() -> LLMProvider:
     settings = get_settings()
-    mode = settings.resolved_mode(settings.openai_provider_mode, settings.openai_api_key)
-    if mode == "live":
+    # YandexGPT is the sanctioned live provider (no foreign card needed); prefer
+    # it when configured. OpenAI stays as a fallback if only its mode is set.
+    yandex_mode = settings.resolved_mode(
+        settings.yandexgpt_provider_mode, settings.yandexgpt_api_key
+    )
+    if yandex_mode == "live":
+        from app.providers.live.llm_yandexgpt import YandexGPTLLMProvider
+
+        return YandexGPTLLMProvider()
+
+    openai_mode = settings.resolved_mode(settings.openai_provider_mode, settings.openai_api_key)
+    if openai_mode == "live":
         from app.providers.live.llm_openai import OpenAILLMProvider
 
         return OpenAILLMProvider()

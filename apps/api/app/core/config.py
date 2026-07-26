@@ -8,6 +8,7 @@ ProviderMode = Literal["mock", "live"]
 
 _PROVIDER_MODE_FIELDS = (
     "openai_provider_mode",
+    "yandexgpt_provider_mode",
     "maps_provider_mode",
     "weather_provider_mode",
     "flights_provider_mode",
@@ -44,6 +45,14 @@ class Settings(BaseSettings):
     openai_provider_mode: ProviderMode | None = None
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+
+    # YandexGPT (Yandex Cloud Foundation Models) — the sanctioned LLM path (no
+    # foreign card needed). Preferred over OpenAI when its mode resolves to live;
+    # see app/providers/factory.py. Uses Api-Key auth + folder id.
+    yandexgpt_provider_mode: ProviderMode | None = None
+    yandexgpt_api_key: str = ""
+    yandexgpt_folder_id: str = ""
+    yandexgpt_model: str = "yandexgpt/latest"
 
     maps_provider_mode: ProviderMode | None = None
     yandex_maps_api_key: str = ""
