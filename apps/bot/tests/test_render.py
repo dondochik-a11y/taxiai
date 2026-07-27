@@ -5,13 +5,19 @@ from __future__ import annotations
 from bot.render import (
     map_url,
     parse_alert_arg,
+    parse_goal_arg,
     render_alert_status,
     render_daily_plan,
     render_finance_summary,
+    render_goal_cleared,
+    render_goal_progress,
+    render_goal_set,
     render_kef_table,
     render_model_health,
     render_ocr_result,
     render_recommendation,
+    render_shift_started,
+    render_shift_stopped,
 )
 
 DISTRICTS = {1: "Хамовники", 2: "Арбат", 3: "Тверской"}
@@ -251,3 +257,119 @@ def test_render_alert_status_reflects_state() -> None:
     assert "включены" in on and "1.7" in on
     off = render_alert_status(False, 1.5)
     assert "выключены" in off and "1.5" in off
+
+
+# --- /goal ------------------------------------------------------------------
+
+_FINANCE_BASE = {
+    "summary_date": "2026-07-17",
+    "gross_income": 8450.0,
+    "net_income": 3000.0,
+    "fuel_cost": 1200.0,
+    "rental_cost": 1500.0,
+    "wash_cost": 0.0,
+    "fines_cost": 0.0,
+    "tax_estimate": 507.0,
+    "depreciation_estimate": 32.5,
+    "trips_count": 21,
+    "online_hours": 9.5,
+    "income_per_hour": 548.7,
+    "income_per_km": 38.2,
+}
+
+
+def test_parse_goal_arg_empty_shows() -> None:
+    assert parse_goal_arg("") == {"action": "show"}
+    assert parse_goal_arg(None) == {"action": "show"}
+
+
+def test_parse_goal_arg_clear() -> None:
+    assert parse_goal_arg("off")["action"] == "clear"
+    assert parse_goal_arg("выкл")["action"] == "clear"
+    assert parse_goal_arg("0")["action"] == "clear"
+
+
+def test_parse_goal_arg_sets_amount() -> None:
+    assert parse_goal_arg("5000") == {"action": "set", "amount": 5000}
+    # tolerate rubles sign, spaces and comma decimals
+    assert parse_goal_arg("5 000 ₽")["amount"] == 5000
+    assert parse_goal_arg("4999,6")["amount"] == 5000  # rounds to whole ruble
+
+
+def test_parse_goal_arg_rejects_out_of_range_and_garbage() -> None:
+    assert parse_goal_arg("50")["action"] == "invalid"  # below GOAL_MIN
+    assert parse_goal_arg("99999999")["action"] == "invalid"  # above GOAL_MAX
+    assert parse_goal_arg("много")["action"] == "invalid"
+
+
+def test_render_goal_set_and_cleared() -> None:
+    assert "5000 ₽" in render_goal_set(5000)
+    assert "сброшена" in render_goal_cleared()
+
+
+def test_render_goal_progress_partial() -> None:
+    summary = {**_FINANCE_BASE, "daily_goal": 5000.0, "goal_remaining": 2000.0,
+               "goal_reached": False, "goal_pct": 60.0}
+    text = render_goal_progress(summary)
+    assert "5000 ₽" in text
+    assert "осталось 2000 ₽" in text
+    assert "60%" in text
+
+
+def test_render_goal_progress_reached() -> None:
+    summary = {**_FINANCE_BASE, "net_income": 5200.0, "daily_goal": 5000.0,
+               "goal_remaining": 0.0, "goal_reached": True, "goal_pct": 100.0}
+    text = render_goal_progress(summary)
+    assert "достигнута" in text
+
+
+def test_render_goal_progress_no_goal() -> None:
+    assert "не задана" in render_goal_progress({**_FINANCE_BASE, "daily_goal": None})
+
+
+def test_finance_summary_surfaces_goal_remaining() -> None:
+    summary = {**_FINANCE_BASE, "daily_goal": 5000.0, "goal_remaining": 2000.0,
+               "goal_reached": False}
+    text = render_finance_summary(summary)
+    assert "осталось 2000 ₽" in text
+
+
+def test_finance_summary_goal_reached_line() -> None:
+    summary = {**_FINANCE_BASE, "daily_goal": 5000.0, "goal_remaining": 0.0,
+               "goal_reached": True}
+    assert "достигнута" in render_finance_summary(summary)
+
+
+def test_finance_summary_no_goal_no_goal_line() -> None:
+    text = render_finance_summary(_FINANCE_BASE)
+    assert "Цель" not in text
+
+
+# --- /shift -----------------------------------------------------------------
+
+
+def test_render_shift_started_shows_msk_time() -> None:
+    # 09:00 UTC → 12:00 MSK
+    text = render_shift_started("2026-07-27T09:00:00+00:00")
+    assert "Смена начата" in text
+    assert "12:00 (МСК)" in text
+
+
+def test_render_shift_started_without_time() -> None:
+    text = render_shift_started(None)
+    assert "Смена начата" in text
+
+
+def test_render_shift_stopped_shows_elapsed_and_income() -> None:
+    text = render_shift_stopped(
+        {
+            "action": "stopped",
+            "elapsed_hours": 5.5,
+            "trips_count_today": 12,
+            "net_income_today": 4200.0,
+            "gross_income_today": 6800.0,
+        }
+    )
+    assert "5ч 30м" in text
+    assert "12 поездок" in text
+    assert "чистыми 4200 ₽" in text

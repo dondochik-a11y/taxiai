@@ -68,6 +68,18 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_weekly_summary(self, user_id: str, days: int = 14) -> dict:
+        resp = await self._client.get(
+            f"/v1/finance/weekly-summary/{user_id}", params={"days": days}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def toggle_shift(self, user_id: str) -> dict:
+        resp = await self._client.post("/v1/shifts/toggle", params={"user_id": user_id})
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_daily_plan(self) -> list[dict]:
         resp = await self._client.get("/v1/forecasts/daily-plan")
         resp.raise_for_status()

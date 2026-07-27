@@ -19,6 +19,7 @@ class DriverProfileIn(BaseModel):
     home_district_id: int | None = None
     surge_alert_enabled: bool = False
     surge_alert_threshold: float = 1.5
+    daily_goal_income: float | None = None
 
 
 class UserCreate(BaseModel):
@@ -48,6 +49,7 @@ class DriverProfileUpdate(BaseModel):
     home_district_id: int | None = None
     surge_alert_enabled: bool | None = None
     surge_alert_threshold: float | None = None
+    daily_goal_income: float | None = None
 
 
 class UserUpdate(BaseModel):

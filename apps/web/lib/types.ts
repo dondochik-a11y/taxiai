@@ -77,6 +77,27 @@ export interface FinanceSummary {
   online_hours: number;
   income_per_hour: number;
   income_per_km: number;
+  // Per-driver daily-goal progress; null when no goal is set.
+  daily_goal?: number | null;
+  goal_remaining?: number | null;
+  goal_reached?: boolean;
+  goal_pct?: number | null;
+}
+
+export interface WeeklyTotals {
+  gross_income: number;
+  net_income: number;
+  trips_count: number;
+  online_hours: number;
+  income_per_hour: number;
+  income_per_km: number;
+}
+
+// One call covering N days (default 14) of daily figures + totals — replaces the
+// old N separate /daily-summary calls on the finance page.
+export interface WeeklySummary {
+  days: FinanceSummary[];
+  totals: WeeklyTotals;
 }
 
 export interface Recommendation {

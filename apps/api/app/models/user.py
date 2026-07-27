@@ -67,6 +67,11 @@ class DriverProfile(Base):
         Numeric(3, 1), default=1.5, server_default="1.5", nullable=False
     )
 
+    # Personal daily net-income target set from the bot's /goal command. NULL =
+    # no goal set (the finance summary then omits the "осталось N ₽ до цели"
+    # line). Compared against net_income, the honest take-home figure.
+    daily_goal_income: Mapped[float | None] = mapped_column(Numeric(9, 2), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

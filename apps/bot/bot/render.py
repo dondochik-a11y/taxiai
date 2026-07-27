@@ -161,20 +161,143 @@ def render_ocr_result(result: dict, district_names: dict[int, str]) -> str:
     )
 
 
+def _goal_line(summary: dict) -> str | None:
+    """The «осталось N ₽ до цели» / «цель достигнута» line for a finance summary,
+    or None when the driver has no daily goal set."""
+    goal = summary.get("daily_goal")
+    if not goal:
+        return None
+    if summary.get("goal_reached"):
+        return f"🎯 Цель {float(goal):.0f} ₽ достигнута! 🔥"
+    remaining = summary.get("goal_remaining")
+    if remaining is None:
+        return None
+    return f"🎯 Цель {float(goal):.0f} ₽ · осталось {float(remaining):.0f} ₽"
+
+
 def render_finance_summary(summary: dict) -> str:
     if not summary or not summary.get("trips_count"):
-        return "Пока нет поездок за сегодня — итоги появятся после первой записанной поездки."
+        base = "Пока нет поездок за сегодня — итоги появятся после первой записанной поездки."
+        goal_line = _goal_line(summary or {})
+        return f"{base}\n{goal_line}" if goal_line else base
 
     day = date.fromisoformat(str(summary["summary_date"])).strftime("%d.%m")
-    return (
-        f"💰 Итоги за {day}:\n"
-        f"Поездок: {summary['trips_count']} · онлайн {summary['online_hours']:.1f} ч\n"
-        f"Доход: {summary['gross_income']:.0f} ₽ · чистыми: {summary['net_income']:.0f} ₽\n"
+    lines = [
+        f"💰 Итоги за {day}:",
+        f"Поездок: {summary['trips_count']} · онлайн {summary['online_hours']:.1f} ч",
+        f"Доход: {summary['gross_income']:.0f} ₽ · чистыми: {summary['net_income']:.0f} ₽",
         f"Расходы: топливо {summary['fuel_cost']:.0f} ₽ · аренда {summary['rental_cost']:.0f} ₽ · "
-        f"мойка {summary['wash_cost']:.0f} ₽ · штрафы {summary['fines_cost']:.0f} ₽\n"
-        f"Налог ≈{summary['tax_estimate']:.0f} ₽ · амортизация ≈{summary['depreciation_estimate']:.0f} ₽\n"
-        f"Темп: {summary['income_per_hour']:.0f} ₽/час · {summary['income_per_km']:.0f} ₽/км"
+        f"мойка {summary['wash_cost']:.0f} ₽ · штрафы {summary['fines_cost']:.0f} ₽",
+        f"Налог ≈{summary['tax_estimate']:.0f} ₽ · амортизация ≈{summary['depreciation_estimate']:.0f} ₽",
+        f"Темп: {summary['income_per_hour']:.0f} ₽/час · {summary['income_per_km']:.0f} ₽/км",
+    ]
+    goal_line = _goal_line(summary)
+    if goal_line:
+        lines.append(goal_line)
+    return "\n".join(lines)
+
+
+# /goal bounds — a realistic daily net-income target for a Moscow driver; reject
+# anything outside as a typo.
+GOAL_MIN = 100.0
+GOAL_MAX = 1_000_000.0
+
+
+def parse_goal_arg(arg: str | None) -> dict:
+    """Parse the /goal command argument. No I/O — the handler applies it. Returns:
+      {"action": "show"} — no arg, report current goal + today's progress;
+      {"action": "clear"} — «off»/«сброс»/«0», remove the goal;
+      {"action": "set", "amount": float} — set the daily net-income target;
+      {"action": "invalid"} — unparseable / out-of-range."""
+    text = (arg or "").strip().lower()
+    if text == "":
+        return {"action": "show"}
+    if text in ("off", "выкл", "сброс", "убрать", "0"):
+        return {"action": "clear"}
+    # tolerate «5000 ₽», «5 000», «5000р», comma decimals
+    cleaned = (
+        text.replace("₽", "").replace("р.", "").replace("руб", "").replace("р", "")
+        .replace(" ", "").replace(" ", "").replace(",", ".").strip()
     )
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return {"action": "invalid"}
+    if not (GOAL_MIN <= value <= GOAL_MAX):
+        return {"action": "invalid"}
+    return {"action": "set", "amount": round(value)}
+
+
+def render_goal_set(amount: float) -> str:
+    return (
+        f"🎯 Цель на день: {float(amount):.0f} ₽ чистыми.\n"
+        "Покажу прогресс в /finance и по команде /goal. Сбросить — «/goal off»."
+    )
+
+
+def render_goal_cleared() -> str:
+    return "🎯 Цель на день сброшена. Задать снова — «/goal 5000»."
+
+
+def render_goal_invalid() -> str:
+    return (
+        "Не понял сумму. Формат: «/goal 5000» — задать цель на день, "
+        "«/goal» — показать прогресс, «/goal off» — сбросить."
+    )
+
+
+def render_goal_progress(summary: dict) -> str:
+    """Progress toward today's goal, from a daily finance summary (which carries
+    daily_goal / goal_remaining / goal_reached / goal_pct)."""
+    goal = summary.get("daily_goal")
+    if not goal:
+        return "🎯 Цель на день не задана. Задать — «/goal 5000» (сумма чистыми)."
+    net = float(summary.get("net_income") or 0)
+    if summary.get("goal_reached"):
+        return (
+            f"🎯 Цель {float(goal):.0f} ₽ достигнута! Чистыми уже {net:.0f} ₽. 🔥\n"
+            "Изменить — «/goal 6000», сбросить — «/goal off»."
+        )
+    remaining = float(summary.get("goal_remaining") or 0)
+    pct = summary.get("goal_pct")
+    pct_txt = f" ({float(pct):.0f}%)" if pct is not None else ""
+    return (
+        f"🎯 Цель {float(goal):.0f} ₽ чистыми.\n"
+        f"Сейчас: {net:.0f} ₽{pct_txt} · осталось {remaining:.0f} ₽.\n"
+        "Изменить — «/goal 6000», сбросить — «/goal off»."
+    )
+
+
+def _fmt_hm(hours: float) -> str:
+    """A duration in hours → «Xч Yм» (or «Yм» under an hour)."""
+    total_minutes = max(int(round(hours * 60)), 0)
+    h, m = divmod(total_minutes, 60)
+    return f"{h}ч {m:02d}м" if h else f"{m}м"
+
+
+def render_shift_started(started_at: str | None) -> str:
+    when = _fmt_valid_until(started_at)
+    when_txt = f" в {when} (МСК)" if when else ""
+    return (
+        f"🟢 Смена начата{when_txt}.\n"
+        "Онлайн-часы теперь считаются по реальной смене — /finance покажет честный ₽/час.\n"
+        "Закончить смену — снова «/shift»."
+    )
+
+
+def render_shift_stopped(result: dict) -> str:
+    elapsed = _fmt_hm(float(result.get("elapsed_hours") or 0))
+    trips = result.get("trips_count_today")
+    net = result.get("net_income_today")
+    gross = result.get("gross_income_today")
+    lines = [f"🔴 Смена окончена. За рулём: {elapsed}."]
+    if trips is not None:
+        income = ""
+        if net is not None and gross is not None:
+            income = f" · {float(gross):.0f} ₽ / чистыми {float(net):.0f} ₽"
+        lines.append(f"Сегодня: {int(trips)} поездок{income}.")
+    lines.append("Хорошего отдыха! Начать новую смену — «/shift».")
+    return "\n".join(lines)
 
 
 def render_model_health(health: dict) -> str:

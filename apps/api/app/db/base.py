@@ -21,6 +21,7 @@ from app.models.forecast import Forecast  # noqa: E402,F401
 from app.models.recommendation import Recommendation  # noqa: E402,F401
 from app.models.pattern_insight import PatternInsight  # noqa: E402,F401
 from app.models.finance import FinanceSummary, Expense  # noqa: E402,F401
+from app.models.shift import Shift  # noqa: E402,F401
 from app.models.chat import ChatMessage  # noqa: E402,F401
 from app.models.notification import TelegramNotificationLog  # noqa: E402,F401
 from app.models.pricing import PriceObservation  # noqa: E402,F401

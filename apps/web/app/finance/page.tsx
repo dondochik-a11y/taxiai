@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/apiClient";
 import { useStoredUserId } from "@/lib/useStoredUserId";
-import type { FinanceSummary, Trip } from "@/lib/types";
+import type { FinanceSummary, Trip, WeeklySummary } from "@/lib/types";
 import { StatTile } from "@/components/charts/StatTile";
 import { TimeSeriesLine, type TimeSeriesPoint } from "@/components/charts/TimeSeriesLine";
 import { CostBreakdownBars } from "@/components/charts/CostBreakdownBars";
@@ -44,28 +44,23 @@ export default function FinancePage() {
     if (!userId) return;
     setLoading(true);
 
-    const todayReq = api
-      .get<FinanceSummary>(`/v1/finance/daily-summary?user_id=${userId}`)
-      .then((s) => setToday(s))
-      .catch(() => setToday(null));
-
-    const historyReq = Promise.all(
-      Array.from({ length: HISTORY_DAYS }, (_, i) => HISTORY_DAYS - 1 - i).map(async (daysAgo) => {
-        const date = isoDateDaysAgo(daysAgo);
-        try {
-          const summary = await api.get<FinanceSummary>(
-            `/v1/finance/daily-summary?user_id=${userId}&summary_date=${date}`
-          );
-          return { date, summary };
-        } catch {
-          return { date, summary: null };
-        }
+    // One call for the whole window (today + the prior HISTORY_DAYS-1), replacing
+    // the old N separate /daily-summary requests. The backend returns days
+    // oldest→newest; the last entry is today.
+    const weeklyReq = api
+      .get<WeeklySummary>(`/v1/finance/weekly-summary/${userId}?days=${HISTORY_DAYS}`)
+      .then((weekly) => {
+        setDays(weekly.days.map((summary) => ({ date: summary.summary_date, summary })));
+        setToday(weekly.days.length ? weekly.days[weekly.days.length - 1] : null);
       })
-    ).then(setDays);
+      .catch(() => {
+        setDays([]);
+        setToday(null);
+      });
 
     api.get<Trip[]>(`/v1/trips?user_id=${userId}&limit=500`).then(setTrips).catch(() => setTrips([]));
 
-    Promise.all([todayReq, historyReq]).finally(() => setLoading(false));
+    weeklyReq.finally(() => setLoading(false));
   }, [userId]);
 
   const history: TimeSeriesPoint[] = useMemo(

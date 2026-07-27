@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 
 from bot.api_client import api_client
 from bot.config import settings
-from bot.handlers import alert, chat, errors, finance, health, help, kef, link, photo, plan, profile, start, where
+from bot.handlers import alert, chat, errors, finance, goal, health, help, kef, link, photo, plan, profile, shift, start, where
 from bot.scheduler import notification_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +23,8 @@ BOT_COMMANDS = [
     BotCommand(command="kef", description="Кэф по районам"),
     BotCommand(command="alert", description="Оповещения о скачке спроса рядом"),
     BotCommand(command="finance", description="Итоги дня: доход и расходы"),
+    BotCommand(command="shift", description="Начать/закончить смену"),
+    BotCommand(command="goal", description="Цель по доходу на день"),
     BotCommand(command="plan", description="Лучшие часы для работы сегодня"),
     BotCommand(command="profile", description="Заполнить профиль водителя"),
     BotCommand(command="link", description="Связать с веб-приложением"),
@@ -61,6 +63,8 @@ async def main() -> None:
     dispatcher.include_router(kef.router)
     dispatcher.include_router(alert.router)
     dispatcher.include_router(finance.router)
+    dispatcher.include_router(shift.router)
+    dispatcher.include_router(goal.router)
     dispatcher.include_router(plan.router)
     dispatcher.include_router(profile.router)  # state-filtered; must come before the catch-all below
     dispatcher.include_router(photo.router)  # F.photo; the catch-all below would swallow photos

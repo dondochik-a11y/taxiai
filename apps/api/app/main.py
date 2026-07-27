@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.base import Base  # noqa: F401  (must import before any single app.models.* submodule)
-from app.api.v1.routers import chat, districts, finance, forecasts, health, kef, link, recommendations, surge, telegram, trips, users
+from app.api.v1.routers import chat, districts, finance, forecasts, health, kef, link, recommendations, shifts, surge, telegram, trips, users
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -20,6 +20,7 @@ app.include_router(users.router, prefix="/v1")
 app.include_router(districts.router, prefix="/v1")
 app.include_router(trips.router, prefix="/v1")
 app.include_router(finance.router, prefix="/v1")
+app.include_router(shifts.router, prefix="/v1")
 app.include_router(forecasts.router, prefix="/v1")
 app.include_router(recommendations.router, prefix="/v1")
 app.include_router(chat.router, prefix="/v1")
