@@ -7,6 +7,7 @@ from bot.render import (
     render_daily_plan,
     render_finance_summary,
     render_kef_table,
+    render_model_health,
     render_ocr_result,
     render_recommendation,
 )
@@ -164,3 +165,57 @@ def test_daily_plan() -> None:
     assert "07:00–11:00" in text
     assert "18:00–22:00" in text
     assert "не хватает данных" in render_daily_plan([])
+
+
+def test_model_health_fresh() -> None:
+    text = render_model_health(
+        {
+            "model_version": "hgbr-v2",
+            "trained_at": "2026-07-26T03:30:00+00:00",
+            "age_days": 1.4,
+            "is_stale": False,
+            "holdout_mae": 0.1234,
+            "mae_by_horizon": {"15": 0.10, "60": 0.19, "120": 0.24, "30": 0.15},
+            "train_rows": 900000,
+            "holdout_rows": 250000,
+        }
+    )
+    assert "свежая" in text
+    assert "hgbr-v2" in text
+    assert "0.1234" in text
+    # horizons rendered in numeric order, not dict/string order
+    assert text.index("15м") < text.index("30м") < text.index("60м") < text.index("120м")
+
+
+def test_model_health_stale() -> None:
+    text = render_model_health(
+        {
+            "model_version": "hgbr-v2",
+            "trained_at": "2026-07-10T03:30:00+00:00",
+            "age_days": 17.3,
+            "is_stale": True,
+            "holdout_mae": 0.2,
+            "mae_by_horizon": {},
+            "train_rows": 900000,
+            "holdout_rows": 250000,
+        }
+    )
+    assert "УСТАРЕЛА" in text
+    assert "17.3 дн" in text
+
+
+def test_model_health_never_trained() -> None:
+    text = render_model_health(
+        {
+            "model_version": None,
+            "trained_at": None,
+            "age_days": None,
+            "is_stale": True,
+            "holdout_mae": None,
+            "mae_by_horizon": {},
+            "train_rows": None,
+            "holdout_rows": None,
+        }
+    )
+    assert "УСТАРЕЛА" in text
+    assert "не обучалась" in text

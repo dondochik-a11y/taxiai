@@ -84,6 +84,11 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_model_health(self) -> dict:
+        resp = await self._client.get("/v1/health/model")
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_link_code(self, user_id: str) -> dict:
         resp = await self._client.post("/v1/link/code", json={"user_id": user_id})
         resp.raise_for_status()

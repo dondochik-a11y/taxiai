@@ -136,6 +136,39 @@ def render_finance_summary(summary: dict) -> str:
     )
 
 
+def render_model_health(health: dict) -> str:
+    """Operator readout of demand-model freshness + forecast quality — backs the
+    /health command. Input is GET /v1/health/model."""
+    version = health.get("model_version") or "—"
+    trained_raw = health.get("trained_at")
+    if trained_raw:
+        trained = _fmt_valid_until(trained_raw)
+        age_days = health.get("age_days")
+        age_txt = f"{age_days} дн. назад" if age_days is not None else "?"
+        when = f"{trained} МСК ({age_txt})" if trained else age_txt
+    else:
+        when = "модель ещё не обучалась"
+
+    flag = "⚠️ УСТАРЕЛА" if health.get("is_stale") else "✅ свежая"
+    lines = [
+        f"🩺 Модель спроса: {flag}",
+        f"Версия: {version}",
+        f"Обучена: {when}",
+    ]
+
+    holdout = health.get("holdout_mae")
+    if holdout is not None:
+        lines.append(f"Holdout MAE: {holdout:.4f}")
+    by_h = health.get("mae_by_horizon") or {}
+    if by_h:
+        order = sorted(by_h.items(), key=lambda kv: int(kv[0]))
+        lines.append("MAE по горизонтам: " + ", ".join(f"{h}м {float(v):.3f}" for h, v in order))
+    rows = health.get("holdout_rows")
+    if rows is not None:
+        lines.append(f"Строк: обучение {health.get('train_rows')}, holdout {rows}")
+    return "\n".join(lines)
+
+
 def render_daily_plan(windows: list[dict]) -> str:
     if not windows:
         return "Пока не хватает данных для плана на сегодня — загляните позже."

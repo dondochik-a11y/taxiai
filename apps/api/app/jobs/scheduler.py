@@ -13,7 +13,8 @@
 - once a day: re-run pattern mining over accumulated history; sync real public
   holidays (isDayOff.ru, live mode) and real upcoming flights (AviationStack,
   live mode) — both no-ops in mock mode; prune kef_observations older than
-  90 days and log last-hour radar coverage.
+  90 days and log last-hour radar coverage; alert if the demand model has gone
+  stale (weekly retrain silently not happening).
 - every PRICING_POLL_MINUTES (default 30): poll real Yandex ride prices per
   district into price_observations (live mode only — no-op until clid+apikey
   are set), feeding surge_service's "live" source.
@@ -200,21 +201,26 @@ def _notify_telegram(text_msg: str) -> bool:
         return False
 
 
-# Radar watchdog state: assume alive at boot so a dead feed on the very first
-# check still alerts, and a healthy boot stays silent.
-_radar_was_alive = True
-# Two emulator halves cover ~130 districts every ~13 min, so one hour of a
-# healthy feed yields far more than this; below it the radar is effectively out.
-RADAR_MIN_DISTRICTS = 10
+# Radar watchdog state: assume healthy at boot so a dead/degraded feed on the
+# very first check still alerts, and a healthy boot stays silent. Levels and
+# thresholds live in app/services/monitoring.py (pure + unit-tested).
+_radar_level = "ok"
+_radar_last_alert_at = None
 
 
 def _run_radar_watchdog_job() -> None:
-    """Hourly radar-liveness check with a Telegram push (Tim's @clnotifi1bot,
-    NOT the app bot) on the dead↔alive transition — the daily retention log
-    line is easy to miss, and a silent radar means the map quietly degrades to
-    synthetic. No-op unless NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID
-    are set in the environment."""
+    """Hourly kef-collection health check with a Telegram push (Tim's
+    @clnotifi1bot, NOT the app bot). Now catches PARTIAL degradation — the
+    multi-hour coverage gaps that the old total-blackout-only check missed:
+    it classifies last-hour distinct-district coverage plus whether any rows
+    arrived at all recently into ok/degraded/down, and alerts (throttled) on
+    entering, worsening within, or recovering from a bad state. No-op unless
+    NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID are set."""
+    from datetime import datetime, timezone
+
     from sqlalchemy import text
+
+    from app.services import monitoring
 
     session = SessionLocal()
     try:
@@ -224,25 +230,94 @@ def _run_radar_watchdog_job() -> None:
                 "WHERE observed_at > now() - interval '1 hour' AND district_id IS NOT NULL"
             )
         ).scalar() or 0
+        recent_rows = session.execute(
+            text(
+                "SELECT count(*) FROM kef_observations "
+                f"WHERE received_at > now() - interval '{monitoring.RADAR_SILENCE_MINUTES} minutes'"
+            )
+        ).scalar() or 0
     except Exception:
         logger.exception("Radar watchdog coverage query failed")
         return
     finally:
         session.close()
 
-    global _radar_was_alive
-    alive = coverage >= RADAR_MIN_DISTRICTS
-    if alive == _radar_was_alive:
+    global _radar_level, _radar_last_alert_at
+    now = datetime.now(timezone.utc)
+    level = monitoring.classify_radar_coverage(coverage, recent_rows)
+    if not monitoring.should_alert_radar(level, _radar_level, now, _radar_last_alert_at):
+        _radar_level = level
         return
-    _radar_was_alive = alive
-    msg = (
-        f"✅ TaxiAI: радар кэфа снова в строю ({coverage} районов за час)."
-        if alive
-        else f"⚠️ TaxiAI: радар кэфа молчит — {coverage} районов за последний час "
-        "(порог 10). Проверь Mac/эмуляторы."
-    )
+
+    if level == "down":
+        msg = (
+            f"⚠️ TaxiAI: сбор кэфа встал — {coverage} районов за час, "
+            f"{recent_rows} строк за {monitoring.RADAR_SILENCE_MINUTES} мин. Проверь Mac/эмуляторы."
+        )
+    elif level == "degraded":
+        msg = (
+            f"⚠️ TaxiAI: сбор кэфа частично провис — {coverage} из ~{monitoring.RADAR_TOTAL_DISTRICTS} "
+            f"районов за час (порог {monitoring.RADAR_COVERAGE_FLOOR}). Проверь эмуляторы/OCR."
+        )
+    else:
+        msg = f"✅ TaxiAI: сбор кэфа восстановился ({coverage} районов за час)."
+
     if _notify_telegram(msg):
-        logger.info("Radar watchdog alert sent (alive=%s, coverage=%d)", alive, coverage)
+        _radar_last_alert_at = now
+        logger.info("Radar watchdog alert sent (level=%s, coverage=%d)", level, coverage)
+    _radar_level = level
+
+
+# Model-staleness watchdog state: the complement to the retrain-death alert —
+# catches a retrain that silently stopped happening even if nothing crashed.
+_model_was_stale = False
+_model_stale_last_alert_at = None
+
+
+def _run_model_staleness_job() -> None:
+    """Daily check that the demand model actually got retrained recently. Reads
+    the latest model_metrics.trained_at (artifact mtime fallback) and alerts,
+    throttled, when it crosses the staleness threshold. This is what would have
+    surfaced the ~2-week OOM-killed retrain that kept serving a stale model with
+    nothing visible. No-op unless the NOTIFY_TELEGRAM_* env vars are set."""
+    from datetime import datetime, timezone
+
+    from app.services import monitoring
+    from app.services.health_service import get_model_health
+
+    session = SessionLocal()
+    try:
+        health = get_model_health(session)
+    except Exception:
+        logger.exception("Model staleness check failed")
+        return
+    finally:
+        session.close()
+
+    global _model_was_stale, _model_stale_last_alert_at
+    now = datetime.now(timezone.utc)
+    is_stale = bool(health["is_stale"])
+    if not monitoring.should_alert_staleness(
+        is_stale, _model_was_stale, now, _model_stale_last_alert_at
+    ):
+        _model_was_stale = is_stale
+        return
+
+    age_days = health["age_days"]
+    if is_stale:
+        age_txt = f"{age_days} дн." if age_days is not None else "нет модели/метрик"
+        msg = (
+            f"⚠️ TaxiAI: модель спроса устарела — последнее переобучение {age_txt} назад "
+            f"(порог {health['stale_threshold_days']} дн.). Похоже, еженедельный retrain "
+            "не отрабатывает."
+        )
+    else:
+        msg = f"✅ TaxiAI: модель спроса снова свежая (обновлена {age_days} дн. назад)."
+
+    if _notify_telegram(msg):
+        _model_stale_last_alert_at = now
+        logger.info("Model staleness alert sent (stale=%s, age_days=%s)", is_stale, age_days)
+    _model_was_stale = is_stale
 
 
 def _run_opensky_job() -> None:
@@ -269,6 +344,7 @@ def main() -> None:
     scheduler.add_job(_run_flights_sync_job, "interval", hours=24, id="flights_sync_tick")
     scheduler.add_job(_run_kef_retention_job, "interval", hours=24, id="kef_retention_tick")
     scheduler.add_job(_run_radar_watchdog_job, "interval", hours=1, id="radar_watchdog_tick")
+    scheduler.add_job(_run_model_staleness_job, "interval", hours=24, id="model_staleness_tick")
     # No-op until Yandex clid+apikey land in .env; cadence per negotiated limits.
     scheduler.add_job(
         _run_price_poll_job,
