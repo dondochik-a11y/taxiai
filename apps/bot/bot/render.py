@@ -46,6 +46,47 @@ def _fmt_valid_until(raw: str | None) -> str | None:
     return dt.astimezone(MSK).strftime("%H:%M")
 
 
+# /alert threshold bounds — a Yandex kef realistically lives in ~1.0–4.0;
+# reject anything outside a generous 1.0–6.0 as a typo (mirrors the ingest
+# RADAR_KEF_MAX_PLAUSIBLE on the backend).
+ALERT_MIN_THRESHOLD = 1.0
+ALERT_MAX_THRESHOLD = 6.0
+
+
+def parse_alert_arg(arg: str | None) -> dict:
+    """Parse the /alert command argument into an action for the handler.
+    No I/O — the handler applies the result. Returns one of:
+      {"action": "show"} — no arg, just report current state;
+      {"action": "on"} / {"action": "off"} — toggle;
+      {"action": "set", "threshold": float} — set threshold (and enable);
+      {"action": "invalid"} — unparseable / out-of-range."""
+    text = (arg or "").strip().lower()
+    if text == "":
+        return {"action": "show"}
+    if text in ("off", "выкл", "стоп", "0"):
+        return {"action": "off"}
+    if text in ("on", "вкл"):
+        return {"action": "on"}
+    try:
+        value = float(text.replace(",", "."))
+    except ValueError:
+        return {"action": "invalid"}
+    if not (ALERT_MIN_THRESHOLD <= value <= ALERT_MAX_THRESHOLD):
+        return {"action": "invalid"}
+    return {"action": "set", "threshold": round(value, 1)}
+
+
+def render_alert_status(enabled: bool, threshold: float) -> str:
+    state = "включены ✅" if enabled else "выключены ⛔️"
+    return (
+        f"🚀 Оповещения «рядом скачок спроса»: {state}.\n"
+        f"Порог кэфа: {float(threshold):.1f}.\n\n"
+        "Пришлю пуш, когда в вашем домашнем районе или рядом с ним кэф "
+        "достигнет порога (только по реальным данным радара).\n"
+        "Настройка: «/alert 1.7» — задать порог · «/alert off» — выключить."
+    )
+
+
 def render_recommendation(rec: dict, district_names: dict[int, str]) -> str:
     target_id = rec["recommended_district_id"]
     target = district_names.get(target_id, f"район #{target_id}")

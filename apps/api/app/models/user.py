@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -55,6 +55,16 @@ class DriverProfile(Base):
 
     home_district_id: Mapped[int | None] = mapped_column(
         ForeignKey("districts.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    # Proactive «рядом скачок спроса» push (see app/services/alerts.py): opt-in
+    # on/off switch + the driver's real-kef threshold, both set from the bot's
+    # /alert command. Off by default so no one is pushed without asking.
+    surge_alert_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    surge_alert_threshold: Mapped[float] = mapped_column(
+        Numeric(3, 1), default=1.5, server_default="1.5", nullable=False
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

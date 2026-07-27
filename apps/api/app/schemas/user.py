@@ -17,6 +17,8 @@ class DriverProfileIn(BaseModel):
     rental_cost_per_week: float | None = None
     work_schedule: dict = {}
     home_district_id: int | None = None
+    surge_alert_enabled: bool = False
+    surge_alert_threshold: float = 1.5
 
 
 class UserCreate(BaseModel):
@@ -44,6 +46,8 @@ class DriverProfileUpdate(BaseModel):
     rental_cost_per_week: float | None = None
     work_schedule: dict | None = None
     home_district_id: int | None = None
+    surge_alert_enabled: bool | None = None
+    surge_alert_threshold: float | None = None
 
 
 class UserUpdate(BaseModel):

@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 
 from bot.api_client import api_client
 from bot.config import settings
-from bot.handlers import chat, errors, finance, health, help, kef, link, photo, plan, profile, start, where
+from bot.handlers import alert, chat, errors, finance, health, help, kef, link, photo, plan, profile, start, where
 from bot.scheduler import notification_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +21,7 @@ BOT_COMMANDS = [
     BotCommand(command="start", description="Начало работы"),
     BotCommand(command="where", description="Куда ехать сейчас"),
     BotCommand(command="kef", description="Кэф по районам"),
+    BotCommand(command="alert", description="Оповещения о скачке спроса рядом"),
     BotCommand(command="finance", description="Итоги дня: доход и расходы"),
     BotCommand(command="plan", description="Лучшие часы для работы сегодня"),
     BotCommand(command="profile", description="Заполнить профиль водителя"),
@@ -58,6 +59,7 @@ async def main() -> None:
     dispatcher.include_router(health.router)  # operator-only; deliberately absent from BOT_COMMANDS
     dispatcher.include_router(where.router)  # also catches bare location messages
     dispatcher.include_router(kef.router)
+    dispatcher.include_router(alert.router)
     dispatcher.include_router(finance.router)
     dispatcher.include_router(plan.router)
     dispatcher.include_router(profile.router)  # state-filtered; must come before the catch-all below

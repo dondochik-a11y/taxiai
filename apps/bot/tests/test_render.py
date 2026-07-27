@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from bot.render import (
     map_url,
+    parse_alert_arg,
+    render_alert_status,
     render_daily_plan,
     render_finance_summary,
     render_kef_table,
@@ -219,3 +221,33 @@ def test_model_health_never_trained() -> None:
     )
     assert "УСТАРЕЛА" in text
     assert "не обучалась" in text
+
+
+def test_parse_alert_arg_empty_shows() -> None:
+    assert parse_alert_arg("") == {"action": "show"}
+    assert parse_alert_arg(None) == {"action": "show"}
+
+
+def test_parse_alert_arg_on_off() -> None:
+    assert parse_alert_arg("off")["action"] == "off"
+    assert parse_alert_arg("выкл")["action"] == "off"
+    assert parse_alert_arg("on")["action"] == "on"
+
+
+def test_parse_alert_arg_sets_threshold() -> None:
+    assert parse_alert_arg("1.7") == {"action": "set", "threshold": 1.7}
+    # comma decimal + surrounding whitespace both tolerated.
+    assert parse_alert_arg(" 2,0 ") == {"action": "set", "threshold": 2.0}
+
+
+def test_parse_alert_arg_rejects_out_of_range_and_garbage() -> None:
+    assert parse_alert_arg("0.5")["action"] == "invalid"
+    assert parse_alert_arg("42")["action"] == "invalid"
+    assert parse_alert_arg("быстрее")["action"] == "invalid"
+
+
+def test_render_alert_status_reflects_state() -> None:
+    on = render_alert_status(True, 1.7)
+    assert "включены" in on and "1.7" in on
+    off = render_alert_status(False, 1.5)
+    assert "выключены" in off and "1.5" in off

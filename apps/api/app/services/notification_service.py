@@ -9,14 +9,16 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.district import District
 from app.models.enums import NotificationType
 from app.models.notification import TelegramNotificationLog
+from app.models.proximity_alert import ProximitySurgeAlertLog
 from app.models.trip import Trip
 from app.models.user import DriverProfile, User
+from app.services import alerts
 from app.services.daily_plan_service import get_daily_plan
 from app.services.finance_service import compute_daily_summary
 from app.services.surge_service import get_current_surge
@@ -152,6 +154,90 @@ def _postshift_summary_notification(session: Session, user: User, profile: Drive
     }
 
 
+def _recent_proximity_sends(session: Session, user_id, now: datetime) -> dict[int, datetime]:
+    """Latest proximity-alert timestamp per district for this driver within the
+    cooldown horizon — feeds alerts.select_surge_alerts' cooldown gate."""
+    since = now - alerts.PROXIMITY_COOLDOWN
+    rows = session.execute(
+        select(ProximitySurgeAlertLog.district_id, func.max(ProximitySurgeAlertLog.sent_at))
+        .where(
+            ProximitySurgeAlertLog.user_id == user_id,
+            ProximitySurgeAlertLog.sent_at >= since,
+        )
+        .group_by(ProximitySurgeAlertLog.district_id)
+    ).all()
+    return {district_id: sent_at for district_id, sent_at in rows}
+
+
+def _proximity_surge_notifications(
+    session: Session, rows: list, now: datetime
+) -> list[dict]:
+    """Proactive «рядом скачок спроса»: for each opted-in driver on shift, push
+    when a nearby district's CURRENT real kef is at/above their threshold.
+
+    "Nearby" is the home district + its nearest neighbours by centroid distance
+    (alerts.nearby_district_ids) — Telegram gives us no passive live GPS, so we
+    anchor on the known home district, not a live position. Throttled per
+    (driver, district) via proximity_surge_alert_log, distinct from the once/day
+    PRESHIFT dedup. Unlike the single-shot builders above, one driver can yield
+    several alerts in a tick (several nearby districts surging)."""
+    active = [
+        (user, profile)
+        for user, profile in rows
+        if profile.surge_alert_enabled
+        and profile.home_district_id is not None
+        and alerts.is_within_shift(profile.work_schedule or {}, now.weekday(), now.hour)
+    ]
+    if not active:
+        return []
+
+    surge_by_district = {r["district_id"]: r for r in get_current_surge(session)}
+    centroids = {
+        district_id: (float(lat), float(lng))
+        for district_id, lat, lng in session.execute(
+            select(District.id, District.centroid_lat, District.centroid_lng)
+        ).all()
+    }
+
+    notifications: list[dict] = []
+    for user, profile in active:
+        nearby = alerts.nearby_district_ids(profile.home_district_id, centroids)
+        threshold = float(profile.surge_alert_threshold or alerts.DEFAULT_SURGE_THRESHOLD)
+        last_sent = _recent_proximity_sends(session, user.id, now)
+        due_ids = alerts.select_surge_alerts(nearby, surge_by_district, threshold, last_sent, now)
+        if not due_ids:
+            continue
+        home_lat, home_lng = centroids[profile.home_district_id]
+        for district_id in due_ids:
+            row = surge_by_district[district_id]
+            district = session.get(District, district_id)
+            surge = float(row["surge"])
+            if district_id == profile.home_district_id:
+                hint = ""
+            else:
+                d_lat, d_lng = centroids[district_id]
+                dist = alerts.distance_km(home_lat, home_lng, d_lat, d_lng)
+                direction = alerts.direction_hint(home_lat, home_lng, d_lat, d_lng)
+                hint = f" (~{dist:.0f} км{' ' + direction if direction else ''})"
+            notifications.append(
+                {
+                    "type": alerts.PROXIMITY_SURGE_TYPE,
+                    "user_id": str(user.id),
+                    "telegram_id": user.telegram_id,
+                    "district_id": district_id,
+                    "text": (
+                        f"🚀 Рядом скачок спроса!\n"
+                        f"В районе «{district.name}» сейчас кэф {surge:.1f}{hint}. "
+                        f"Успей заехать."
+                    ),
+                }
+            )
+            session.add(
+                ProximitySurgeAlertLog(user_id=user.id, district_id=district_id, sent_at=now)
+            )
+    return notifications
+
+
 def get_pending_notifications(session: Session) -> list[dict]:
     now = datetime.now(timezone.utc)
     today = now.date()
@@ -171,6 +257,8 @@ def get_pending_notifications(session: Session) -> list[dict]:
             notif = builder(session, user, profile, now, today)
             if notif:
                 notifications.append(notif)
+
+    notifications.extend(_proximity_surge_notifications(session, rows, now))
 
     session.commit()
     return notifications
