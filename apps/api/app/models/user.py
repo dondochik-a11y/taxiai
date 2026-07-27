@@ -40,6 +40,11 @@ class DriverProfile(Base):
     car_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     car_year: Mapped[int | None] = mapped_column(nullable=True)
 
+    # Purchase price of the car (rubles), captured at onboarding. NULL = not
+    # provided, so the daily summary keeps depreciation at 0 rather than guess.
+    # Drives a simple per-km depreciation estimate (finance_service).
+    car_purchase_price: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+
     tariff_plan: Mapped[TariffPlan] = mapped_column(
         pg_enum(TariffPlan, "tariff_plan"), default=TariffPlan.ECONOMY
     )

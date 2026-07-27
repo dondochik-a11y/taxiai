@@ -5,6 +5,7 @@ unit-tested without a network or a Telegram token.
 from __future__ import annotations
 
 import html
+import re
 from datetime import date, datetime, timedelta, timezone
 
 # Recommendations quote their validity window in Moscow time (drivers are in
@@ -342,3 +343,145 @@ def render_daily_plan(windows: list[dict]) -> str:
         + "\n".join(lines)
         + "\n\nОценка по историческим данным для этого дня недели."
     )
+
+
+# --- /trip quick-log (office task #101) --------------------------------------
+# Bounds are sanity guards, not business rules: reject an obvious typo, don't
+# police what a real Moscow trip can earn / cover.
+TRIP_AMOUNT_MIN = 1.0
+TRIP_AMOUNT_MAX = 1_000_000.0
+TRIP_DISTANCE_MAX = 2_000.0
+EXPENSE_AMOUNT_MAX = 1_000_000.0
+
+
+def _first_number(token: str) -> float | None:
+    """First number in a token, tolerating a comma decimal and a trailing unit
+    («450₽», «12км», «20мин»). No number → None."""
+    match = re.search(r"-?\d+(?:[.,]\d+)?", token.replace(" ", ""))
+    return float(match.group().replace(",", ".")) if match else None
+
+
+def parse_trip_quicklog(arg: str | None) -> dict:
+    """Parse the /trip argument. No I/O — the handler applies it. Returns:
+      {"action": "prompt"} — no arg, start the step-by-step flow;
+      {"action": "log", "amount", "distance_km"[, "duration_seconds"]} — inline
+        «/trip 450 12 [minutes]»;
+      {"action": "invalid"} — unparseable / out of range."""
+    text = (arg or "").strip()
+    if text == "":
+        return {"action": "prompt"}
+    parts = text.split()
+    if len(parts) < 2:
+        return {"action": "invalid"}
+    amount, distance = _first_number(parts[0]), _first_number(parts[1])
+    if amount is None or distance is None:
+        return {"action": "invalid"}
+    if not (TRIP_AMOUNT_MIN <= amount <= TRIP_AMOUNT_MAX):
+        return {"action": "invalid"}
+    if not (0 <= distance <= TRIP_DISTANCE_MAX):
+        return {"action": "invalid"}
+    result = {"action": "log", "amount": round(amount, 2), "distance_km": round(distance, 2)}
+    if len(parts) >= 3:
+        minutes = _first_number(parts[2])
+        if minutes is not None and minutes > 0:
+            result["duration_seconds"] = int(minutes * 60)
+    return result
+
+
+def parse_trip_amount(text: str | None) -> float | None:
+    """Amount step of the /trip flow — a positive, in-range number, else None."""
+    value = _first_number(text or "")
+    if value is None or not (TRIP_AMOUNT_MIN <= value <= TRIP_AMOUNT_MAX):
+        return None
+    return round(value, 2)
+
+
+def parse_trip_distance(text: str | None) -> float | None:
+    """Distance step — a non-negative, in-range number, else None."""
+    value = _first_number(text or "")
+    if value is None or not (0 <= value <= TRIP_DISTANCE_MAX):
+        return None
+    return round(value, 2)
+
+
+def render_trip_prompt() -> str:
+    return "🚕 Сколько заработали за поездку? Отправьте сумму в ₽ (например, 450). /cancel — отмена."
+
+
+def render_trip_ask_distance() -> str:
+    return "Сколько километров проехали? (например, 12; «-» — пропустить)"
+
+
+def render_trip_invalid() -> str:
+    return (
+        "Не понял. Формат: «/trip 450 12» — сумма ₽ и километры "
+        "(и по желанию минуты: «/trip 450 12 20»). Или просто /trip — отвечу по шагам."
+    )
+
+
+def render_trip_logged(trip: dict) -> str:
+    price = float(trip.get("price") or 0)
+    distance = float(trip.get("distance_km") or 0)
+    return f"✅ Записал поездку: {price:.0f} ₽ · {distance:.1f} км.\nИтоги дня — /finance."
+
+
+# --- /expense entry (office task #101) ---------------------------------------
+# Fuel is intentionally absent: the daily summary already estimates fuel from
+# distance, so a manual fuel receipt would double-count.
+EXPENSE_LABELS = {"wash": "мойка", "fine": "штраф", "other": "прочее"}
+EXPENSE_SYNONYMS = {
+    "wash": "wash", "мойка": "wash", "мойки": "wash",
+    "fine": "fine", "штраф": "fine", "штрафы": "fine",
+    "other": "other", "прочее": "other", "другое": "other",
+}
+
+
+def parse_expense(arg: str | None) -> dict:
+    """Parse the /expense argument. Returns:
+      {"action": "prompt"} — no arg, offer the category buttons;
+      {"action": "need_amount", "category"} — «/expense wash», ask the amount;
+      {"action": "log", "category", "amount"} — «/expense wash 300»;
+      {"action": "invalid"} — unknown category / bad amount."""
+    text = (arg or "").strip().lower()
+    if text == "":
+        return {"action": "prompt"}
+    parts = text.split()
+    category = EXPENSE_SYNONYMS.get(parts[0])
+    if category is None:
+        return {"action": "invalid"}
+    if len(parts) < 2:
+        return {"action": "need_amount", "category": category}
+    amount = _first_number(parts[1])
+    if amount is None or not (0 < amount <= EXPENSE_AMOUNT_MAX):
+        return {"action": "invalid"}
+    return {"action": "log", "category": category, "amount": round(amount, 2)}
+
+
+def parse_expense_amount(text: str | None) -> float | None:
+    """Amount step of the /expense flow — a positive, in-range number, else None."""
+    value = _first_number(text or "")
+    if value is None or not (0 < value <= EXPENSE_AMOUNT_MAX):
+        return None
+    return round(value, 2)
+
+
+def render_expense_prompt() -> str:
+    return "💸 Что за расход? Выберите категорию (или сразу «/expense wash 300»)."
+
+
+def render_expense_ask_amount(category: str) -> str:
+    label = EXPENSE_LABELS.get(category, category)
+    return f"Сумма расхода ({label}), ₽? (например, 300). /cancel — отмена."
+
+
+def render_expense_invalid() -> str:
+    return (
+        "Не понял. Формат: «/expense wash 300». "
+        "Категории: мойка (wash), штраф (fine), прочее (other)."
+    )
+
+
+def render_expense_logged(expense: dict) -> str:
+    label = EXPENSE_LABELS.get(expense.get("category"), expense.get("category"))
+    amount = float(expense.get("amount") or 0)
+    return f"✅ Записал расход: {label} {amount:.0f} ₽.\nИтоги дня — /finance."

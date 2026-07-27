@@ -9,6 +9,7 @@ class DriverProfileIn(BaseModel):
     car_make: str | None = None
     car_model: str | None = None
     car_year: int | None = None
+    car_purchase_price: float | None = None
     tariff_plan: TariffPlan = TariffPlan.ECONOMY
     fuel_type: FuelType = FuelType.PETROL_95
     fuel_consumption_l_per_100km: float = 8.0
@@ -39,6 +40,7 @@ class DriverProfileUpdate(BaseModel):
     car_make: str | None = None
     car_model: str | None = None
     car_year: int | None = None
+    car_purchase_price: float | None = None
     tariff_plan: TariffPlan | None = None
     fuel_type: FuelType | None = None
     fuel_consumption_l_per_100km: float | None = None

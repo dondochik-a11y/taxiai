@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/apiClient";
 import { useStoredUserId } from "@/lib/useStoredUserId";
-import type { AiTripAnalysis, District, Trip } from "@/lib/types";
+import type { AiTripAnalysis, District, Trip, TripCreate } from "@/lib/types";
 
 export default function TripsPage() {
   const userId = useStoredUserId();
@@ -18,7 +18,7 @@ export default function TripsPage() {
     api.get<District[]>("/v1/districts").then(setDistricts).catch(() => setDistricts([]));
   }, []);
 
-  useEffect(() => {
+  const loadTrips = useCallback(() => {
     if (!userId) return;
     setLoading(true);
     api
@@ -27,6 +27,10 @@ export default function TripsPage() {
       .catch(() => setTrips([]))
       .finally(() => setLoading(false));
   }, [userId]);
+
+  useEffect(() => {
+    loadTrips();
+  }, [loadTrips]);
 
   const districtName = (id: number) => districts.find((d) => d.id === id)?.name ?? `#${id}`;
 
@@ -64,6 +68,7 @@ export default function TripsPage() {
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-4">
       <h1 className="text-h1">Поездки</h1>
+      <TripEntryForm userId={userId} districts={districts} onSaved={loadTrips} />
       {loading &&
         Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="skeleton h-[4.5rem] rounded-2xl" />
@@ -123,5 +128,145 @@ export default function TripsPage() {
         </div>
       ))}
     </div>
+  );
+}
+
+// Minimal manual trip log (office task #101): amount + distance are enough; the
+// server fills the rest and rolls it straight into the daily finance summary.
+function TripEntryForm({
+  userId,
+  districts,
+  onSaved,
+}: {
+  userId: string;
+  districts: District[];
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [price, setPrice] = useState("");
+  const [distance, setDistance] = useState("");
+  const [durationMin, setDurationMin] = useState("");
+  const [districtId, setDistrictId] = useState<number | "">("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const priceNum = Number(price);
+    const distanceNum = Number(distance);
+    if (!priceNum || priceNum <= 0) {
+      setError("Укажите сумму поездки больше 0.");
+      return;
+    }
+    if (distance !== "" && distanceNum < 0) {
+      setError("Расстояние не может быть отрицательным.");
+      return;
+    }
+    setSubmitting(true);
+    const payload: TripCreate = {
+      price: priceNum,
+      distance_km: distance === "" ? 0 : distanceNum,
+    };
+    if (districtId !== "") {
+      payload.start_district_id = Number(districtId);
+      payload.end_district_id = Number(districtId);
+    }
+    if (durationMin !== "" && Number(durationMin) > 0) {
+      payload.duration_seconds = Math.round(Number(durationMin) * 60);
+    }
+    try {
+      await api.post<Trip>(`/v1/trips?user_id=${userId}`, payload);
+      setPrice("");
+      setDistance("");
+      setDurationMin("");
+      setDistrictId("");
+      setOpen(false);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось записать поездку");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="btn-primary">
+        + Записать поездку
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="card p-4 flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Сумма, ₽</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="1"
+            className="input"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="450"
+            autoFocus
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Километры</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="0.1"
+            className="input"
+            value={distance}
+            onChange={(e) => setDistance(e.target.value)}
+            placeholder="12"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Длительность, мин</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            step="1"
+            className="input"
+            value={durationMin}
+            onChange={(e) => setDurationMin(e.target.value)}
+            placeholder="—"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Район</span>
+          <select
+            className="input"
+            value={districtId}
+            onChange={(e) => setDistrictId(e.target.value === "" ? "" : Number(e.target.value))}
+          >
+            <option value="">— по умолчанию —</option>
+            {districts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={submitting} className="btn-primary flex-1">
+          {submitting ? "Сохранение..." : "Записать"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-sm text-[var(--text-muted)] px-3"
+        >
+          Отмена
+        </button>
+      </div>
+    </form>
   );
 }

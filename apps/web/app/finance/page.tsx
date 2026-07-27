@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/apiClient";
 import { useStoredUserId } from "@/lib/useStoredUserId";
-import type { FinanceSummary, Trip, WeeklySummary } from "@/lib/types";
+import type { Expense, ExpenseCategory, ExpenseCreate, FinanceSummary, Trip, WeeklySummary } from "@/lib/types";
 import { StatTile } from "@/components/charts/StatTile";
 import { TimeSeriesLine, type TimeSeriesPoint } from "@/components/charts/TimeSeriesLine";
 import { CostBreakdownBars } from "@/components/charts/CostBreakdownBars";
@@ -40,7 +40,7 @@ export default function FinancePage() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadFinance = useCallback(() => {
     if (!userId) return;
     setLoading(true);
 
@@ -63,6 +63,10 @@ export default function FinancePage() {
     weeklyReq.finally(() => setLoading(false));
   }, [userId]);
 
+  useEffect(() => {
+    loadFinance();
+  }, [loadFinance]);
+
   const history: TimeSeriesPoint[] = useMemo(
     () => days.map((d) => ({ date: d.date, value: d.summary?.net_income ?? 0 })),
     [days]
@@ -80,6 +84,7 @@ export default function FinancePage() {
       { label: "Аренда", value: today.rental_cost },
       { label: "Мойки", value: today.wash_cost },
       { label: "Штрафы", value: today.fines_cost },
+      { label: "Прочее", value: today.other_cost },
       { label: "Налог", value: today.tax_estimate },
       { label: "Амортизация", value: today.depreciation_estimate },
     ].filter((i) => i.value > 0);
@@ -146,6 +151,8 @@ export default function FinancePage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-h1">Финансы</h1>
 
+      <ExpenseEntryForm userId={userId} onSaved={loadFinance} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatTile
           label="Доход сегодня"
@@ -181,5 +188,110 @@ export default function FinancePage() {
         />
       </div>
     </div>
+  );
+}
+
+// Manual expense entry (office task #101): wash / fine / other. Fuel is absent
+// on purpose — the summary already estimates it from distance. Every logged
+// expense reduces net income immediately.
+const EXPENSE_OPTIONS: { value: ExpenseCategory; label: string }[] = [
+  { value: "wash", label: "Мойка" },
+  { value: "fine", label: "Штраф" },
+  { value: "other", label: "Прочее" },
+];
+
+function ExpenseEntryForm({ userId, onSaved }: { userId: string; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<ExpenseCategory>("wash");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const amountNum = Number(amount);
+    if (!amountNum || amountNum <= 0) {
+      setError("Укажите сумму расхода больше 0.");
+      return;
+    }
+    setSubmitting(true);
+    const payload: ExpenseCreate = { category, amount: amountNum };
+    if (note.trim() !== "") payload.note = note.trim();
+    try {
+      await api.post<Expense>(`/v1/finance/expenses?user_id=${userId}`, payload);
+      setAmount("");
+      setNote("");
+      setOpen(false);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось записать расход");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="btn-primary self-start">
+        + Записать расход
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="card p-4 flex flex-col gap-3">
+      <div className="flex gap-2 flex-wrap">
+        {EXPENSE_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            data-active={category === o.value}
+            className="chip"
+            onClick={() => setCategory(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Сумма, ₽</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="1"
+            className="input"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="300"
+            autoFocus
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="text-[var(--text-secondary)]">Заметка</span>
+          <input
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="—"
+          />
+        </label>
+      </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={submitting} className="btn-primary flex-1">
+          {submitting ? "Сохранение..." : "Записать"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-sm text-[var(--text-muted)] px-3"
+        >
+          Отмена
+        </button>
+      </div>
+    </form>
   );
 }

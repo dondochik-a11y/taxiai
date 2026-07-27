@@ -19,6 +19,24 @@ from app.services.shift_service import get_shifts_overlapping_day, shift_hours_f
 # regime — clearly an estimate, not tax advice.
 SELF_EMPLOYED_TAX_RATE = 0.04
 
+# Depreciation model (office task #101): a car driven for ride-hail wears out
+# over a long but finite mileage and keeps some resale value at the end. We
+# spread the *lost* value evenly over that mileage to get a conservative,
+# honest ₽/km figure — no driving, no wear. Deliberately simple: it ignores age
+# and make, and is always labelled an estimate, not an accounting figure.
+DEPRECIATION_USEFUL_LIFE_KM = 400_000.0  # heavy taxi use before the car is spent
+DEPRECIATION_RESIDUAL_FRACTION = 0.2  # ~20% of the price is still recoverable then
+
+
+def depreciation_per_km(car_price: float) -> float:
+    """Conservative ₽/km depreciation from the car's purchase price. Pure/DB-free
+    so it can be unit-tested directly. Example: a 1 500 000 ₽ car loses 80% of
+    its value over 400 000 km → 1 200 000 / 400 000 = 3.0 ₽/km."""
+    if car_price <= 0:
+        return 0.0
+    lost_value = car_price * (1 - DEPRECIATION_RESIDUAL_FRACTION)
+    return lost_value / DEPRECIATION_USEFUL_LIFE_KM
+
 
 def _day_bounds(d: date) -> tuple[datetime, datetime]:
     start = datetime.combine(d, time.min, tzinfo=timezone.utc)
@@ -85,12 +103,24 @@ def compute_daily_summary(db: Session, user_id: uuid.UUID, target_date: date) ->
 
     wash_cost = sum(float(e.amount) for e in expenses if e.category == ExpenseCategory.WASH)
     fines_cost = sum(float(e.amount) for e in expenses if e.category == ExpenseCategory.FINE)
+    other_cost = sum(float(e.amount) for e in expenses if e.category == ExpenseCategory.OTHER)
 
     tax_estimate = gross_income * SELF_EMPLOYED_TAX_RATE
-    depreciation_estimate = 0.0  # no car purchase price captured at onboarding yet (MVP)
+    # Real depreciation once the driver has entered the car's price at
+    # onboarding; tied to km actually driven today. NULL price → 0 (honest).
+    depreciation_estimate = 0.0
+    if profile and profile.car_purchase_price:
+        depreciation_estimate = depreciation_per_km(float(profile.car_purchase_price)) * total_distance_km
 
     net_income = (
-        gross_income - fuel_cost - rental_cost - wash_cost - fines_cost - tax_estimate - depreciation_estimate
+        gross_income
+        - fuel_cost
+        - rental_cost
+        - wash_cost
+        - fines_cost
+        - other_cost
+        - tax_estimate
+        - depreciation_estimate
     )
 
     # Online hours: prefer real shift boundaries when the driver logged a shift
@@ -125,6 +155,7 @@ def compute_daily_summary(db: Session, user_id: uuid.UUID, target_date: date) ->
         rental_cost=round(rental_cost, 2),
         wash_cost=round(wash_cost, 2),
         fines_cost=round(fines_cost, 2),
+        other_cost=round(other_cost, 2),
         tax_estimate=round(tax_estimate, 2),
         depreciation_estimate=round(depreciation_estimate, 2),
         trips_count=len(trips),

@@ -25,6 +25,7 @@ class FinanceSummary(Base):
     rental_cost: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
     wash_cost: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
     fines_cost: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
+    other_cost: Mapped[float] = mapped_column(Numeric(8, 2), default=0, server_default="0")
     tax_estimate: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
     depreciation_estimate: Mapped[float] = mapped_column(Numeric(8, 2), default=0)
 

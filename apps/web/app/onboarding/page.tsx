@@ -27,6 +27,7 @@ const DEFAULTS = {
   carModel: "Solaris",
   tariffPlan: "economy",
   fuelType: "petrol95",
+  carPurchasePrice: "" as number | "",
   fuelConsumption: 8.0,
   fuelPrice: 60.0,
   rentalCostPerDay: 2500,
@@ -53,6 +54,7 @@ export default function OnboardingPage() {
   const [carModel, setCarModel] = useState(DEFAULTS.carModel);
   const [tariffPlan, setTariffPlan] = useState(DEFAULTS.tariffPlan);
   const [fuelType, setFuelType] = useState(DEFAULTS.fuelType);
+  const [carPurchasePrice, setCarPurchasePrice] = useState<number | "">(DEFAULTS.carPurchasePrice);
   const [fuelConsumption, setFuelConsumption] = useState(DEFAULTS.fuelConsumption);
   const [fuelPrice, setFuelPrice] = useState(DEFAULTS.fuelPrice);
   const [rentalCostPerDay, setRentalCostPerDay] = useState(DEFAULTS.rentalCostPerDay);
@@ -79,6 +81,7 @@ export default function OnboardingPage() {
           setCarModel(p.car_model ?? "");
           setTariffPlan(p.tariff_plan ?? DEFAULTS.tariffPlan);
           setFuelType(p.fuel_type ?? DEFAULTS.fuelType);
+          setCarPurchasePrice(p.car_purchase_price ?? "");
           setFuelConsumption(p.fuel_consumption_l_per_100km ?? DEFAULTS.fuelConsumption);
           setFuelPrice(p.fuel_price_per_liter ?? DEFAULTS.fuelPrice);
           setRentalCostPerDay(p.rental_cost_per_day ?? DEFAULTS.rentalCostPerDay);
@@ -112,6 +115,7 @@ export default function OnboardingPage() {
     setCarModel(DEFAULTS.carModel);
     setTariffPlan(DEFAULTS.tariffPlan);
     setFuelType(DEFAULTS.fuelType);
+    setCarPurchasePrice(DEFAULTS.carPurchasePrice);
     setFuelConsumption(DEFAULTS.fuelConsumption);
     setFuelPrice(DEFAULTS.fuelPrice);
     setRentalCostPerDay(DEFAULTS.rentalCostPerDay);
@@ -140,6 +144,7 @@ export default function OnboardingPage() {
         car_model: carModel,
         tariff_plan: tariffPlan,
         fuel_type: fuelType,
+        car_purchase_price: carPurchasePrice === "" ? null : Number(carPurchasePrice),
         fuel_consumption_l_per_100km: fuelConsumption,
         fuel_price_per_liter: fuelPrice,
         rental_cost_per_day: rentalCostPerDay,
@@ -259,6 +264,18 @@ export default function OnboardingPage() {
               className="input"
               value={rentalCostPerDay}
               onChange={(e) => setRentalCostPerDay(Number(e.target.value))}
+            />
+          </Field>
+          <Field label="Цена машины, ₽ (для расчёта амортизации)">
+            <input
+              type="number"
+              inputMode="numeric"
+              className="input"
+              value={carPurchasePrice}
+              onChange={(e) =>
+                setCarPurchasePrice(e.target.value === "" ? "" : Number(e.target.value))
+              }
+              placeholder="напр. 1 500 000"
             />
           </Field>
         </Section>

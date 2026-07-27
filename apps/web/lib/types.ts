@@ -71,6 +71,7 @@ export interface FinanceSummary {
   rental_cost: number;
   wash_cost: number;
   fines_cost: number;
+  other_cost: number;
   tax_estimate: number;
   depreciation_estimate: number;
   trips_count: number;
@@ -127,6 +128,7 @@ export interface DriverProfileIn {
   car_make?: string | null;
   car_model?: string | null;
   car_year?: number | null;
+  car_purchase_price?: number | null;
   tariff_plan?: string;
   fuel_type?: string;
   fuel_consumption_l_per_100km?: number;
@@ -152,4 +154,32 @@ export interface User {
   phone: string | null;
   telegram_id: number | null;
   driver_profile: (DriverProfileIn & Record<string, unknown>) | null;
+}
+
+// Manual cost entry (mirrors apps/api/app/schemas/finance.py ExpenseCreate/Out).
+export type ExpenseCategory = "wash" | "fine" | "other";
+
+export interface ExpenseCreate {
+  category: ExpenseCategory;
+  amount: number;
+  expense_date?: string | null;
+  note?: string | null;
+}
+
+export interface Expense {
+  id: number;
+  expense_date: string;
+  category: ExpenseCategory;
+  amount: number;
+  note: string | null;
+}
+
+// Minimal manual trip log (mirrors the required fields of TripCreate; the
+// server fills the rest). Extra optional fields are accepted but omitted here.
+export interface TripCreate {
+  price: number;
+  distance_km: number;
+  start_district_id?: number | null;
+  end_district_id?: number | null;
+  duration_seconds?: number | null;
 }

@@ -5,9 +5,16 @@ from __future__ import annotations
 from bot.render import (
     map_url,
     parse_alert_arg,
+    parse_expense,
+    parse_expense_amount,
     parse_goal_arg,
+    parse_trip_amount,
+    parse_trip_distance,
+    parse_trip_quicklog,
     render_alert_status,
     render_daily_plan,
+    render_expense_invalid,
+    render_expense_logged,
     render_finance_summary,
     render_goal_cleared,
     render_goal_progress,
@@ -18,6 +25,8 @@ from bot.render import (
     render_recommendation,
     render_shift_started,
     render_shift_stopped,
+    render_trip_invalid,
+    render_trip_logged,
 )
 
 DISTRICTS = {1: "Хамовники", 2: "Арбат", 3: "Тверской"}
@@ -373,3 +382,96 @@ def test_render_shift_stopped_shows_elapsed_and_income() -> None:
     assert "5ч 30м" in text
     assert "12 поездок" in text
     assert "чистыми 4200 ₽" in text
+
+
+# --- /trip quick-log (office task #101) --------------------------------------
+
+
+def test_parse_trip_quicklog_inline() -> None:
+    assert parse_trip_quicklog("450 12") == {
+        "action": "log",
+        "amount": 450.0,
+        "distance_km": 12.0,
+    }
+
+
+def test_parse_trip_quicklog_with_units_and_duration() -> None:
+    r = parse_trip_quicklog("450₽ 12км 20мин")
+    assert r["action"] == "log"
+    assert r["amount"] == 450.0
+    assert r["distance_km"] == 12.0
+    assert r["duration_seconds"] == 20 * 60
+
+
+def test_parse_trip_quicklog_comma_decimal() -> None:
+    assert parse_trip_quicklog("450,5 12,3")["amount"] == 450.5
+
+
+def test_parse_trip_quicklog_empty_prompts() -> None:
+    assert parse_trip_quicklog("")["action"] == "prompt"
+    assert parse_trip_quicklog(None)["action"] == "prompt"
+
+
+def test_parse_trip_quicklog_invalid() -> None:
+    assert parse_trip_quicklog("450")["action"] == "invalid"  # missing distance
+    assert parse_trip_quicklog("abc def")["action"] == "invalid"
+    assert parse_trip_quicklog("0 5")["action"] == "invalid"  # amount below min
+
+
+def test_parse_trip_amount_and_distance() -> None:
+    assert parse_trip_amount("450") == 450.0
+    assert parse_trip_amount("0") is None
+    assert parse_trip_distance("12,5") == 12.5
+    assert parse_trip_distance("-1") is None
+
+
+def test_render_trip_logged() -> None:
+    text = render_trip_logged({"price": 450.0, "distance_km": 12.0})
+    assert "450 ₽" in text
+    assert "12.0 км" in text
+    assert "/finance" in text
+
+
+def test_render_trip_invalid_mentions_format() -> None:
+    assert "/trip 450 12" in render_trip_invalid()
+
+
+# --- /expense entry (office task #101) ---------------------------------------
+
+
+def test_parse_expense_inline() -> None:
+    assert parse_expense("wash 300") == {"action": "log", "category": "wash", "amount": 300.0}
+
+
+def test_parse_expense_russian_synonym() -> None:
+    r = parse_expense("штраф 500")
+    assert r == {"action": "log", "category": "fine", "amount": 500.0}
+
+
+def test_parse_expense_category_only_asks_amount() -> None:
+    assert parse_expense("other") == {"action": "need_amount", "category": "other"}
+
+
+def test_parse_expense_empty_prompts() -> None:
+    assert parse_expense("")["action"] == "prompt"
+
+
+def test_parse_expense_invalid() -> None:
+    assert parse_expense("groceries 300")["action"] == "invalid"  # unknown category
+    assert parse_expense("wash -5")["action"] == "invalid"  # bad amount
+
+
+def test_parse_expense_amount() -> None:
+    assert parse_expense_amount("300") == 300.0
+    assert parse_expense_amount("0") is None
+
+
+def test_render_expense_logged_uses_russian_label() -> None:
+    text = render_expense_logged({"category": "wash", "amount": 300.0})
+    assert "мойка" in text
+    assert "300 ₽" in text
+
+
+def test_render_expense_invalid_lists_categories() -> None:
+    text = render_expense_invalid()
+    assert "wash" in text and "fine" in text and "other" in text

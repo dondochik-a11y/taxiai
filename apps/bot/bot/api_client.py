@@ -63,6 +63,21 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def create_trip(self, user_id: str, payload: dict) -> dict:
+        """Log a real trip (bot /trip quick-log). The backend fills the fields a
+        minimal payload omits and rolls it into the day's finance summary."""
+        resp = await self._client.post("/v1/trips", params={"user_id": user_id}, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_expense(self, user_id: str, payload: dict) -> dict:
+        """Log a manual cost (bot /expense). Reduces net in the daily summary."""
+        resp = await self._client.post(
+            "/v1/finance/expenses", params={"user_id": user_id}, json=payload
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_finance_daily_summary(self, user_id: str) -> dict:
         resp = await self._client.get("/v1/finance/daily-summary", params={"user_id": user_id})
         resp.raise_for_status()
