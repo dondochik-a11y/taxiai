@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,6 +53,38 @@ def _latest_forecast_by_district(session: Session, horizon_minutes: int) -> dict
     return best
 
 
+def _compute_uplift_pct(current_value: float, best_value: float) -> float:
+    """Percent income uplift of the best reachable district over staying put.
+    Same formula that gates the move decision (see MOVE_THRESHOLD_PCT) — we now
+    surface it instead of throwing it away. When staying earns nothing we can't
+    form a ratio, so a nonzero best counts as a full (100%) uplift."""
+    if current_value > 0:
+        return (best_value - current_value) / current_value * 100
+    return 100.0
+
+
+def _resolve_move(
+    current_value: float, best_value: float, is_different_district: bool
+) -> tuple[str, float | None]:
+    """Decide stay/move and the uplift to advertise. Uplift is None for a stay:
+    staying is the baseline, so there's no honest "+X%" to show (a below-threshold
+    gain isn't worth the driver acting on and would overstate the benefit)."""
+    if not is_different_district:
+        return "stay", None
+    gain_pct = _compute_uplift_pct(current_value, best_value)
+    if gain_pct >= MOVE_THRESHOLD_PCT:
+        return "move", round(gain_pct, 1)
+    return "stay", None
+
+
+def _valid_until(forecast: Forecast | None) -> datetime | None:
+    """How long the recommendation holds. It's built on a single forecast, and
+    that forecast's target_time (= generated_at + horizon_minutes) is the moment
+    the predicted conditions arrive — past it the answer is stale and should be
+    recomputed. Truthful and already stored on the forecast, so no guessing."""
+    return forecast.target_time if forecast else None
+
+
 def _matching_pattern_text(session: Session, district_name: str) -> str | None:
     rows = session.execute(select(PatternInsight)).scalars().all()
     for p in rows:
@@ -63,18 +96,20 @@ def _matching_pattern_text(session: Session, district_name: str) -> str | None:
 def _build_rationale(current: District, target: District, forecast: Forecast | None, action: str, session: Session) -> str:
     if forecast is None:
         return "Недостаточно данных для прогноза в этом районе."
-    prob_pct = float(forecast.predicted_demand_level) * 100
+    # demand_level is a 0–1 model index, not a calibrated order probability —
+    # surface it as an honest "уровень спроса", never as «вероятность заказа».
+    demand_pct = float(forecast.predicted_demand_level) * 100
     check = float(forecast.predicted_avg_check)
     if action == "move":
         base = (
             f"Через {forecast.horizon_minutes} мин в районе «{target.name}» ожидается повышенный спрос "
-            f"(вероятность {prob_pct:.0f}%), средний чек ≈{check:.0f} ₽ — стоит переехать."
+            f"(уровень спроса {demand_pct:.0f}%), средний чек ≈{check:.0f} ₽ — стоит переехать."
         )
         extra = _matching_pattern_text(session, target.name)
         return f"{base} {extra}" if extra else base
     return (
         f"Оставайтесь в районе «{current.name}»: через {forecast.horizon_minutes} мин здесь ожидается спрос "
-        f"с вероятностью {prob_pct:.0f}%, средний чек ≈{check:.0f} ₽."
+        f"с уровнем {demand_pct:.0f}%, средний чек ≈{check:.0f} ₽."
     )
 
 
@@ -132,16 +167,16 @@ def generate_recommendation(
             best_district_id = district_id
             best_forecast = forecast
 
-    action = "stay"
-    if best_district_id != current_district_id:
-        gain_pct = ((best_value - current_value) / current_value * 100) if current_value > 0 else 100.0
-        if gain_pct >= MOVE_THRESHOLD_PCT:
-            action = "move"
-        else:
-            best_district_id, best_forecast = current_district_id, current_forecast
+    action, expected_uplift_pct = _resolve_move(
+        current_value, best_value, best_district_id != current_district_id
+    )
+    if action == "stay":
+        best_district_id, best_forecast = current_district_id, current_forecast
 
-    # Heuristic, not a calibrated statistic: demand_level itself stands in for
-    # confidence, since we don't yet track per-forecast residual history.
+    # NOTE: `probability` is a demand-level PROXY, not a calibrated order
+    # probability. demand_level (0–1) stands in for confidence because we don't
+    # yet track per-forecast residual history. UIs must label it "уровень
+    # спроса", never «вероятность заказа» — see the schema/render docstrings.
     probability = float(best_forecast.predicted_demand_level) if best_forecast else 0.5
 
     rec = Recommendation(
@@ -158,4 +193,9 @@ def generate_recommendation(
     session.add(rec)
     session.commit()
     session.refresh(rec)
+    # Derived response-only fields (not persisted columns): the income uplift we
+    # already computed above, and how long this answer stays valid. Attached to
+    # the ORM instance so RecommendationOut (from_attributes) can read them.
+    rec.expected_uplift_pct = expected_uplift_pct
+    rec.valid_until = _valid_until(best_forecast)
     return rec

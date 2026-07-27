@@ -5,7 +5,11 @@ unit-tested without a network or a Telegram token.
 from __future__ import annotations
 
 import html
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+
+# Recommendations quote their validity window in Moscow time (drivers are in
+# Moscow; the backend stores UTC). MSK is a fixed UTC+3, no DST.
+MSK = timezone(timedelta(hours=3))
 
 # Honest labels for the surge source cascade (see
 # apps/api/app/services/surge_service.py) — synthetic must never be
@@ -29,19 +33,40 @@ def map_url(base: str, district_id: int | None = None) -> str:
     return f"{base}/?district={district_id}"
 
 
+def _fmt_valid_until(raw: str | None) -> str | None:
+    """ISO timestamp (UTC) from the backend → 'HH:MM' in Moscow time, or None."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(MSK).strftime("%H:%M")
+
+
 def render_recommendation(rec: dict, district_names: dict[int, str]) -> str:
     target_id = rec["recommended_district_id"]
     target = district_names.get(target_id, f"район #{target_id}")
     if rec.get("action") == "move":
         head = f"🧭 Стоит ехать в «{target}»."
+        uplift = rec.get("expected_uplift_pct")
+        if uplift is not None:
+            head += f" +{float(uplift):.0f}% к ожидаемому доходу"
     else:
         head = f"🧭 Оставайтесь в «{target}» — переезд сейчас не окупится."
     lines = [
         head,
-        f"Вероятность заказа: {float(rec.get('probability', 0)) * 100:.0f}% · "
+        # `probability` is a demand-level proxy, not a calibrated order
+        # probability — label it honestly as «уровень спроса».
+        f"Уровень спроса: {float(rec.get('probability', 0)) * 100:.0f}% · "
         f"ожидаемый чек ≈{float(rec.get('expected_avg_check', 0)):.0f} ₽ · "
         f"горизонт {rec.get('recommended_horizon_minutes', 30)} мин",
     ]
+    valid_until = _fmt_valid_until(rec.get("valid_until"))
+    if valid_until:
+        lines.append(f"Актуально до {valid_until} (МСК)")
     if rec.get("rationale_text"):
         lines.append(rec["rationale_text"])
     return "\n".join(lines)

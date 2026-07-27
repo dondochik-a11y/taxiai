@@ -32,6 +32,16 @@ function fmtClock(d: Date): string {
   return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 }
 
+// A recommendation's validity window is quoted in Moscow time regardless of the
+// device timezone (drivers are in Moscow; the backend timestamp is UTC).
+function fmtMoscowClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Moscow",
+  });
+}
+
 // Reads the `?district=<id>` deep link and the `?rec=1` shortcut. useSearchParams()
 // opts the subtree out of prerendering, so it lives in its own component behind a
 // <Suspense> boundary (App Router requirement) and lifts values up via callbacks.
@@ -267,9 +277,20 @@ export default function DashboardPage() {
                   : `✓ оставаться в ${recDistrict.name}`}
               </div>
               <div className="text-sm text-[var(--text-secondary)] tabular mt-0.5">
-                вероятность заказа {(recommendation.probability * 100).toFixed(0)}% · чек ≈
+                {recommendation.action === "move" &&
+                  recommendation.expected_uplift_pct != null && (
+                    <span className="text-success font-medium">
+                      +{recommendation.expected_uplift_pct.toFixed(0)}% к ожидаемому доходу ·{" "}
+                    </span>
+                  )}
+                уровень спроса {(recommendation.probability * 100).toFixed(0)}% · чек ≈
                 {recommendation.expected_avg_check.toFixed(0)} ₽
               </div>
+              {recommendation.valid_until && (
+                <div className="text-xs text-[var(--text-muted)] tabular mt-0.5">
+                  актуально до {fmtMoscowClock(recommendation.valid_until)} МСК
+                </div>
+              )}
             </div>
             {recSurge != null && (
               <div className="text-right shrink-0">

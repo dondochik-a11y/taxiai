@@ -106,7 +106,8 @@ class MockLLMProvider:
             if recommendation:
                 return (
                     f"Сейчас лучше всего работать в районе «{recommendation['recommended_district_name']}» — "
-                    f"вероятность высокого спроса {recommendation['probability'] * 100:.0f}%, "
+                    # `probability` is a demand-level proxy, not a real probability.
+                    f"уровень спроса {recommendation['probability'] * 100:.0f}%, "
                     f"средний чек ≈{recommendation['expected_avg_check']:.0f} ₽ "
                     f"(горизонт {recommendation['horizon_minutes']} мин)."
                 )

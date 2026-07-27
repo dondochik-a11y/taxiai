@@ -38,13 +38,20 @@ def test_recommendation_move() -> None:
             "recommended_horizon_minutes": 30,
             "probability": 0.72,
             "expected_avg_check": 640.0,
+            "expected_uplift_pct": 18.0,
+            "valid_until": "2026-07-27T09:30:00+00:00",  # 09:30 UTC → 12:30 MSK
             "rationale_text": "Через 30 мин в районе «Арбат» ожидается повышенный спрос.",
         },
         DISTRICTS,
     )
     assert "Стоит ехать в «Арбат»" in text
+    assert "+18% к ожидаемому доходу" in text
+    # `probability` is a demand-level proxy — must not be sold as order probability.
+    assert "Уровень спроса" in text
     assert "72%" in text
+    assert "Вероятность заказа" not in text
     assert "640 ₽" in text
+    assert "Актуально до 12:30 (МСК)" in text
     assert "повышенный спрос" in text
 
 
@@ -56,12 +63,17 @@ def test_recommendation_stay_and_unknown_district() -> None:
             "recommended_horizon_minutes": 30,
             "probability": 0.4,
             "expected_avg_check": 500.0,
+            "expected_uplift_pct": None,  # staying has no uplift to advertise
+            "valid_until": None,
             "rationale_text": None,
         },
         DISTRICTS,
     )
     assert "Оставайтесь" in text
     assert "район #99" in text
+    # No uplift line and no validity line when the backend sends nulls.
+    assert "к ожидаемому доходу" not in text
+    assert "Актуально до" not in text
 
 
 def test_kef_table_sorted_top_n_with_source_labels() -> None:

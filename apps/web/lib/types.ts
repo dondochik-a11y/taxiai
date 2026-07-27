@@ -85,8 +85,14 @@ export interface Recommendation {
   recommended_district_id: number;
   recommended_horizon_minutes: number;
   action: "stay" | "move";
+  // Demand-level proxy (0–1), NOT a calibrated order probability — show it as
+  // «уровень спроса», never «вероятность заказа».
   probability: number;
   expected_avg_check: number;
+  // Expected income uplift of moving vs staying (%); null for a "stay".
+  expected_uplift_pct: number | null;
+  // ISO timestamp: when the recommendation stops being reliable; null if none.
+  valid_until: string | null;
   rationale_text: string | null;
 }
 
