@@ -41,6 +41,35 @@ MAX_TRAIN_ROWS = 1_000_000
 MAX_HOLDOUT_ROWS = 300_000
 
 
+def _persist_metrics(
+    *, holdout_mae: float | None, per_horizon: dict, train_rows: int, holdout_rows: int
+) -> None:
+    """INSERT one model_metrics row for this retrain. Best-effort: logs and
+    swallows on failure so a metrics write never blocks shipping a fresh model."""
+    from app.db.session import SessionLocal
+    from app.models.model_metrics import ModelMetric
+    from app.services.monitoring import build_mae_by_horizon
+
+    session = SessionLocal()
+    try:
+        session.add(
+            ModelMetric(
+                model_version=MODEL_VERSION,
+                holdout_mae=holdout_mae,
+                mae_by_horizon=build_mae_by_horizon(per_horizon),
+                train_rows=train_rows,
+                holdout_rows=holdout_rows,
+            )
+        )
+        session.commit()
+        print(f"Recorded model_metrics row (version={MODEL_VERSION}, holdout_rows={holdout_rows})")
+    except Exception as exc:  # noqa: BLE001 — never fail the retrain over metrics
+        session.rollback()
+        print(f"WARNING: failed to persist model_metrics row: {exc}")
+    finally:
+        session.close()
+
+
 def main() -> None:
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -83,18 +112,32 @@ def main() -> None:
     # weekly in-container retrain, and HGBR bins to uint8 internally anyway.
     model.fit(train_df[columns].astype(np.float32), train_df["label"])
 
+    holdout_mae: float | None = None
+    per_horizon: dict[int, float | None] = {h: None for h in feat.HORIZONS_MINUTES}
     if not holdout_df.empty:
         preds = model.predict(holdout_df[columns].astype(np.float32))
-        mae = mean_absolute_error(holdout_df["label"], preds)
-        print(f"Holdout MAE (demand_level, 0-1 scale): {mae:.4f} on {len(holdout_df)} rows")
+        holdout_mae = float(mean_absolute_error(holdout_df["label"], preds))
+        print(f"Holdout MAE (demand_level, 0-1 scale): {holdout_mae:.4f} on {len(holdout_df)} rows")
         # Per-horizon breakdown — one aggregate number hides where the model
         # actually degrades (long horizons should be worse; if they aren't,
         # the horizon features are being ignored).
         for horizon in feat.HORIZONS_MINUTES:
             m = (holdout_df["horizon_minutes"] == horizon).to_numpy()
             if m.any():
-                h_mae = mean_absolute_error(holdout_df["label"].to_numpy()[m], preds[m])
+                h_mae = float(mean_absolute_error(holdout_df["label"].to_numpy()[m], preds[m]))
+                per_horizon[horizon] = h_mae
                 print(f"  horizon {horizon:>3} min: MAE {h_mae:.4f} on {int(m.sum())} rows")
+
+    # Persist the holdout eval so forecast quality has a queryable history and
+    # the staleness watchdog has a trained_at to check — these numbers used to
+    # only be printed and lost. Isolated so a metrics-write hiccup never fails
+    # the retrain itself (the artifact below is what serving actually needs).
+    _persist_metrics(
+        holdout_mae=holdout_mae,
+        per_horizon=per_horizon,
+        train_rows=len(train_df),
+        holdout_rows=len(holdout_df),
+    )
 
     joblib.dump(
         {
